@@ -3,7 +3,36 @@ from numba import njit
 from .roe_flux import roe_flux
 
 class Schemes:
+    r'''
+    Parent class for the numerical schemes.
 
+    Available schemes are:
+
+        * Lax-Friedrich
+        * Lax-Wendroff
+        * Mac Cormack
+        * Roe
+        * Flux limiter central
+        * MUSCL
+
+    Parameters
+    ----------
+    gamma : `float`
+        Ratio of specific heats.
+
+    dx, dy : `float`
+        Spatial resolution in the x and y directions.
+
+    boundary_condition : `{'constant', 'periodic', 'noslip'}`, default=`'constant'`
+        Boundary condition for the simulation box.
+
+            * `'constant'` : Set the boundaries to be constant from the
+            initial condition.
+
+            * `'periodic'` : Periodic boundary conditions.
+
+            * `'noslip'` : Reflective walls.
+    '''
     def __init__(self, gamma, dx, dy, boundary_condition='constant'):
         self.g = gamma 
         self.dx = dx
@@ -16,6 +45,20 @@ class Schemes:
             self.is2D = True
 
     def _get_variables(self, U):
+        r'''
+        Return the primitive variables.
+
+        Parameters
+        ----------
+        U : `ndarray`
+            Conserved variables.
+
+        Returns
+        -------
+        rho, ux, uy, E : `ndarray`
+            The primitive variabels for density, horizontal and vertical
+            velocity, and internal energy.
+        '''
         rho = U[0]
         ux = U[1] / rho
         uy = U[2] / rho 
@@ -24,6 +67,26 @@ class Schemes:
         return rho, ux, uy, E
 
     def _flux(self, U, Pg=None, axis='all'):
+        r'''
+        Create the flux vector.
+
+        Parameters
+        ----------
+        U : `ndarray`
+            Conserved variables.
+
+        Pg : `ndarray` or `None`, default=`None`
+            Gas pressure.
+
+        axis : `int` or `str`, optional
+            Return either the flux in the x direction or the y direction,
+            or both (defalut).
+
+        Returns
+        -------
+        Fx, Fy : `ndarray`
+            The flux in the x and y directions.
+        '''
         if Pg is None:
             Pg = self._EOS(U)
 
@@ -269,7 +332,9 @@ class Schemes:
         return FRoe
     
 class Roe(Schemes):
-
+    r'''
+    The Roe-Pike scheme. 
+    '''
     def __init__(self, gamma, dx, dy, boundary_condition='constant', **kwargs):
         self.method = 'Roe'
         super().__init__(gamma, dx, dy, boundary_condition)
@@ -310,7 +375,9 @@ class Roe(Schemes):
             return Unn
     
 class LaxFriedrich(Schemes):
-
+    r'''
+    The Lax-Friedrich scheme.
+    '''
     def __init__(self, gamma, dx, dy, boundary_condition='constant', **kwargs):
         self.method = 'Lax-Friedrich'
         super().__init__(gamma, dx, dy, boundary_condition)
@@ -344,7 +411,9 @@ class LaxFriedrich(Schemes):
             return Unn
     
 class LaxWendroff(Schemes):
-
+    r'''
+    The Lax-Wendroff scheme.
+    '''
     def __init__(self, gamma, dx, dy, boundary_condition='constant', **kwargs):
         self.method = 'Lax-Wendroff'
         super().__init__(gamma, dx, dy, boundary_condition)
@@ -395,7 +464,9 @@ class LaxWendroff(Schemes):
             return Unn
 
 class MacCormack(Schemes):
-
+    r'''
+    The Mac Cormack scheme.
+    '''
     def __init__(self, gamma, dx, dy, boundary_condition='constant', **kwargs):
         self.method = 'MacCormack'
         super().__init__(gamma, dx, dy, boundary_condition)
@@ -460,7 +531,7 @@ class MacCormack(Schemes):
         
 class FLIC(Schemes):
     '''
-    Flux LImiter Center scheme
+    The Flux LImiter Center scheme.
     '''
     def __init__(self, gamma, dx, dy, boundary_condition='constant',
                  limit_func='minmod', epsilon=1e-8, **kwargs):
@@ -565,6 +636,9 @@ class FLIC(Schemes):
             return Unn
         
 class MUSCL(Schemes):
+    r'''
+    The MUSCL scheme.
+    '''
     def __init__(self, gamma, dx, dy,boundary_condition='constant',
                  beta=1/3, limit_func='minmod', epsilon=1e-8, **kwargs):
         

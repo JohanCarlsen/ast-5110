@@ -4,10 +4,54 @@ from scipy.optimize import fsolve
 import matplotlib.pyplot as plt 
 
 SOLVERS = {'lf': LaxFriedrich, 'lw': LaxWendroff, 'roe': Roe,
-           'mc': MacCormack, 'FLIC': FLIC, 'muscl': MUSCL}
+           'mc': MacCormack, 'flic': FLIC, 'muscl': MUSCL}
 
 class HDSolver:
+    r'''
+    Hydrodynamic solver class.
 
+    Parameters
+    ----------
+    nx : `int`
+        Number of grid points in the x-direction.
+
+    ny : `int`, default=1
+        Number of grid points in the y-direction. Defaults to 1, which 
+        is the 1D case.
+
+    lx, ly : `int`, default=1
+        Length of simulation box in x and y directions. 
+
+    gamma : `float`, default=5/3
+        Ratio of specific heats. 
+
+    nt : `int`, default=100 
+        Number of timesteps to simulate.
+    
+    cfl_cut : `float`, default=0.9
+        CFL number.
+
+    PgL, PgR, rhoL, rhoR : `float`, default `None`
+        In the 1D case, `PgL` and `rhoL` represent the left,
+        respectively right gas pressure and dneisty.
+
+    rho0, Pg0, ux0, uy0 : `float`, default=1
+        In the 1D case, these variables represent the initial values of
+        the density, gas pressure, horizontal and vertical velocities.
+
+    rho1, rho2 : `float`, optional 
+        In the 2D case, `rho1` (default=`1e-11`) and `rho2`
+        (default=`1e-9`) represent the densities in the corona and
+        upper chromosphere, respectively.
+
+    KHI : `bool`, default=`False`
+        If `True`, the initial condition is set to simulate the 
+        Kelvin-Helmholtz instability.
+
+    n_regions : int, defaut=3
+        When `KHI` is `True`, this sets the number of regions in the 
+        initial condition.
+    '''
     def __init__(self, nx, ny=1, lx=1, ly=1, gamma=5/3, nt=100,
                  cfl_cut=0.9, PgL=None, PgR=None, rhoL=None, rhoR=None,
                  rho0=1, Pg0=1, ux0=1, uy0=1, rho1=1e-11, rho2=1e-9,
@@ -43,6 +87,9 @@ class HDSolver:
             self._set_initial_KHI(Pg0, rho0, rho1, rho2, n_regions)
 
     def _create_box(self):
+            r'''
+            Creates the simulation box.
+            '''
             nx, ny, N = self.nx, self.ny, self.N
 
             self.rho = np.zeros((ny, nx, N))
@@ -54,12 +101,59 @@ class HDSolver:
 
     @staticmethod
     def _gauss(x, x0, y, y0, A=1, sigma=5, **kwargs):
+        r'''
+        Static method for a gaussian surface.
+
+        Parameters
+        ----------
+        x, y : `int` or `float`
+            The x and y variables.
+
+        x0, y0 : `int` or `float`
+            The center of the gaussian.
+
+        A : `int` or `float`, default=1
+            Amplitude.
+
+        sigma : `int`or `float`, default=5
+            Standard deviation of the gaussian.
+
+        Returns
+        -------
+        ndarray : 
+            Returns the gaussian surface.
+        '''
         P1 = ((x - x0) / sigma)**2
         P2 = ((y - y0) / sigma)**2
 
         return A * np.exp(-0.5 * (P1 + P2))
 
     def _hyper_tan(self, y, A, HW=1, n_regions=3, **kwargs):
+        r'''
+        Hyperbolic tangent function.
+
+        .. math::
+            f(y)=\frac{1}{2}A\bigg[1+\tanh\big(\frac{y}{HW}\big)\bigg]
+
+        Parameters
+        ----------
+        y : `int` or `float`
+            y coordinate.
+
+        A : `int` or `float`
+            Amplitude.
+
+        HW : `int` or `float`, default=1
+            Half-width.
+
+        n_regions : `int`, default=3
+            Number of regions to divide the simulation box into.
+
+        Returns
+        -------
+        ndarray : 
+            The function.
+        '''
         if n_regions == 3:
             arg1 = y - self.ny/4
             arg2 = 3 * self.ny/4 - y 
@@ -76,6 +170,17 @@ class HDSolver:
             return A * 0.5 * (1 + np.tanh(arg / HW))
 
     def _set_initial_1D(self, rhoL, rhoR, PgL, PgR):
+        r'''
+        Fills the arrays according to the left and right initial values.
+
+        Parameters
+        ----------
+        rhoL, rhoR : `float`
+            Left, respectively right initial density values.
+
+        PgL, PgR : `float`
+            Left, respectively right initial gas pressure values.
+        '''
         nx = self.nx
         inds = np.arange(self.nx)
 
@@ -83,7 +188,16 @@ class HDSolver:
         self.Pg[..., 0] = np.where(inds < nx//2, PgL, PgR)
         self.E[..., 0] = self.Pg[..., 0] / ((self.g - 1) * self.rho[..., 0])
 
-    def _set_initial_2D(self, rho0, Pg0, ux0, uy0, **kwargs):        
+    def _set_initial_2D(self, rho0, Pg0, ux0, uy0, **kwargs):
+        r'''
+        Initialize a 2D simulation box.
+
+        Parameters
+        ----------
+        rho0, Pg0, ux0, uy0 : `float`
+            Initial values for the density, gas pressure, horizontal and
+            vertical velocities. 
+        '''
         nx, ny = self.nx, self.ny
         g, mu, m_u, k_B = self.g, self.mu, self.m_u, self.k_B
         x0, y0 = nx/2, ny/2
@@ -109,6 +223,21 @@ class HDSolver:
         self.E[..., 0] = e0 + 0.5 * (ux0**2 + uy0**2)
 
     def _set_initial_KHI(self, Pg0, rho0, rho1, rho2, n_regions):
+        r'''
+        Set the initial state for the simulation box to simulate the 
+        Kelvin-Helmholtz instability (KHI).
+
+        Parameters
+        ----------
+        Pg0, rho0 : `float`
+            Initial values for gas pressure and density.
+
+        rho1, rho2 : `float`
+            If `n_regions` is 3, these initial density values are used.
+
+        n_regions : `int`
+            Number of regions to divide the simulation box into.
+        '''
         nx, ny = self.nx, self.ny
         g, mu, m_u, k_B = self.g, self.mu, self.m_u, self.k_B
 
@@ -149,6 +278,19 @@ class HDSolver:
         self.E[..., 0] = e0 + 0.5 * (ux0**2 + uy0**2)
     
     def _timestep(self, Pg, rho, ux, uy):
+        r'''
+        Calculate the timestep.
+
+        Parameters
+        ----------
+        Pg, rho, ux, uy : `ndarray`
+            Gas pressure, density, horizontal and vertical velocities.
+
+        Returns
+        -------
+        dt : `float`
+            Timestep 
+        '''
         dx, dy = self.dx, self.dy 
 
         cs = np.sqrt(self.g * Pg / rho)
@@ -163,7 +305,46 @@ class HDSolver:
 
         return dt
     
-    def evolve(self, method='lw', bc='constant', verbose=False, **kwargs):
+    def evolve(self, method='lw', bc='constant', verbose=False,
+               **kwargs):
+        r'''
+        Evolve the system.
+
+        Parameters
+        ----------
+        method : `{'lw', 'lf', 'mc', 'roe', 'muscl', 'flic'}`, default=`'lw'`
+            Which numerical scheme to use.
+
+                * `'lw'` : The Lax-Wendroff scheme
+                * `'lf'` : The Lax-Friedrich shceme
+                * `'mc'` : The Mac Cormack scheme
+                * `'roe'` : The Roe-Pike scheme
+                * `'muscl'` : The MUSCL scheme
+                * `'flic'` : The flux llimiter central scheme
+
+        bc : `{'constant', 'periodic', 'noslip'}`, default=`'constant'`
+            Boundary condition.
+
+        verbose : `bool`, default=`False`
+            If `True`, output progress to terminal.
+
+        **kwargs : `dict`, optional
+            Additional arguments for the FLIC and MUSCL schemes.
+
+            Valid keyword arguments are:
+
+            Properties:
+            limit_func : `{'minmod', 'superbee', 'vanleer'}`, default=`'minmod'`
+                The flux limiter function.
+
+            epsilon : `float`, default=`1e-8`
+                Small constant to avoid division by zero when
+                computing the succesive gradient.
+
+            beta : `float`, default=1/3
+                Constant used in the parabolic reconstruction. Only used
+                for the MUSCL scheme.
+        '''
         solver = SOLVERS[method](self.g, self.dx, self.dy, bc, **kwargs)
 
         self.scheme_name = solver.method
@@ -207,6 +388,21 @@ class HDSolver:
             print('')
 
     def get_arrays(self):
+        r'''
+        Return the arrays from the simulation.
+        
+        Note that since the timestep is calculated using the gas
+        pressure and density, it is possible that `NaN` values are
+        present. The method checks this, and excludes them. Also, if
+        the simulation is 1D, the method does not return vertical 
+        velocity or temperature.
+
+        Returns
+        -------
+        t, rho, ux, uy, E, Pg, T : `ndarray`
+            Arrays for time, density, horizontal and vertical velocity,
+            internal energy, and gas pressure and temperature. 
+        '''
         idx = np.isnan(self.t)
         t = self.t[~idx]
 

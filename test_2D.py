@@ -21,9 +21,14 @@ Pg0 = 1
 
 n_regions = 3
 
-HD = HDSolver(150, 150, nt=5000, Pg0=0.25, KHI=True, n_regions=n_regions)
+'''
+Notes:
+Roe works with 150x150, nt=6000, and Pg0=0.25
+LW works with 150x150, nt=4000, and Pg0=15
+'''
+HD = HDSolver(150, 150, nt=4000, Pg0=15, KHI=True, n_regions=n_regions)
 t1 = perf_counter_ns()
-HD.evolve('roe', bc='noslip', verbose=True)
+HD.evolve('mc', bc='noslip', verbose=True)
 t2 = perf_counter_ns()
 
 if n_regions == 2:
