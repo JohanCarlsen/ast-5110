@@ -39,10 +39,23 @@ class Schemes:
         self.dy = dy
         self.bc = boundary_condition
         self.two_bc = False
-        self.is2D = False 
         
         if dy < 1:
             self.is2D = True
+            self.frac = 0.25
+            self._step = self._step2D
+
+        else:
+            self.is2D = False 
+            self.frac = 0.5
+            self._step = self._step1D
+
+    def _step1D(self):
+        raise NotImplementedError
+    
+    def _step2D(self):
+        raise NotImplementedError
+
 
     def _get_variables(self, U):
         r'''
@@ -166,7 +179,6 @@ class Schemes:
         rho, ux, uy, E = self._get_variables(U)
 
         e = rho * (E - 0.5 * (ux**2 + uy**2))
-
         Pg = (self.g - 1) * e 
 
         return Pg 
@@ -339,40 +351,34 @@ class Roe(Schemes):
         self.method = 'Roe'
         super().__init__(gamma, dx, dy, boundary_condition)
 
-    def _step(self, rho, ux, uy, E, Pg, dt):
-        dx, dy = self.dx, self.dy
+    def _step1D(self, rho, ux, uy, E, Pg, dt):
+        dx = self.dx 
         U = self._U(rho, ux, uy, E)
         FRoexP = self._Roe_flux(U, Pg, -1)
 
         Uxm = np.roll(U, 1, axis=-1)
         Pgxm = self._EOS(Uxm)
-        # from time import perf_counter_ns
-        # t1 = perf_counter_ns()
         FRoexM = self._Roe_flux(Uxm, Pgxm, -1)
-        # t2 = perf_counter_ns()
-        # time = (t2 - t1) * 1e-6
-        # print(f'Time: {time:.2f} ms')
-        # exit()
 
         dFx = FRoexP - FRoexM
-        Un = U - dt/dx * dFx 
+        Un = U - dt/dx * dFx
 
-        if not self.is2D:
-            return Un 
-        
-        else:
-            Pgn = self._EOS(Un)
-            GRoeyP = self._Roe_flux(Un, Pgn, -2)
+        return Un 
+    
+    def _step2D(self, rho, ux, uy, E, Pg, dt):
+        dy = self.dy
+        U = self._U(rho, ux, uy, E)
+        GRoeyP = self._Roe_flux(U, Pg, -2)
 
-            Uym = np.roll(Un, 1, axis=-2)
-            Pgym = self._EOS(Uym)
+        Uym = np.roll(U, 1, -2)
+        Pgym = self._EOS(Uym)
+        GRoeyM = self._Roe_flux(Uym, Pgym, -2)
 
-            GRoeyM = self._Roe_flux(Uym, Pgym, -2)
+        dFy = GRoeyP - GRoeyM
+        Un = self._step1D(rho, ux, uy, E, Pg, dt)
+        Unn = Un - dt/dy * dFy
 
-            dFy = GRoeyP - GRoeyM
-            Unn = Un - dt/dy * dFy 
-
-            return Unn
+        return Unn
     
 class LaxFriedrich(Schemes):
     r'''
@@ -382,33 +388,34 @@ class LaxFriedrich(Schemes):
         self.method = 'Lax-Friedrich'
         super().__init__(gamma, dx, dy, boundary_condition)
 
-    def _step(self, rho, ux, uy, E, Pg, dt):
-        dx, dy = self.dx, self.dy
+    def _step1D(self, rho, ux, uy, E, Pg, dt):
+        dx = self.dx 
         U = self._U(rho, ux, uy, E)
-        Fx = self._flux(U, Pg, axis=-1)
+        Fx = self._flux(U, axis=-1)
 
         UW = np.roll(U, 1, axis=-1)
         UE = np.roll(U, -1, axis=-1)
         FW = np.roll(Fx, 1, axis=-1)
         FE = np.roll(Fx, -1, axis=-1)
 
-        Un = 0.5 * (UW + UE - dt/dx * (FE - FW))
+        Un = self.frac * (UW + UE - dt/dx * (FE - FW))
 
-        if not self.is2D:
-            return Un 
-        
-        else:
-            Pgn = self._EOS(Un)
-            Fy = self._flux(Un, Pgn, axis=-2)
+        return Un 
+    
+    def _step2D(self, rho, ux, uy, E, Pg, dt):
+        dy = self.dy
+        U = self._U(rho, ux, uy, E)
+        Fy = self._flux(U, axis=-2)
 
-            US = np.roll(Un, 1, axis=-2)
-            UN = np.roll(Un, -1, axis=-2)
-            FS = np.roll(Fy, 1, axis=-2)
-            FN = np.roll(Fy, -1, axis=-2)
+        US = np.roll(U, 1, axis=-2)
+        UN = np.roll(U, -1, axis=-2)
+        FS = np.roll(Fy, 1, axis=-2)
+        FN = np.roll(Fy, -1, axis=-2)
 
-            Unn = 0.5 * (US + UN - dt/dy * (FN - FS))
+        Un = self._step1D(rho, ux, uy, E, Pg, dt)
+        Unn = Un + self.frac * (US + UN - dt/dy * (FN - FS))
 
-            return Unn
+        return Unn
     
 class LaxWendroff(Schemes):
     r'''
@@ -418,50 +425,46 @@ class LaxWendroff(Schemes):
         self.method = 'Lax-Wendroff'
         super().__init__(gamma, dx, dy, boundary_condition)
 
-    def _step(self, rho, ux, uy, E, Pg, dt):
-        dx, dy = self.dx, self.dy 
-
+    def _step1D(self, rho, ux, uy, E, Pg, dt):
+        dx = self.dx 
         U = self._U(rho, ux, uy, E)
-        Fx = self._flux(U, Pg, axis=-1)
+        Fx = self._flux(U, axis=-1)
 
         UL = np.roll(U, 1, axis=-1)
         UR = np.roll(U, -1, axis=-1)
         FL = np.roll(Fx, 1, axis=-1)
         FR = np.roll(Fx, -1, axis=-1)
 
-        UW = 0.5 * (UL + U - dt/dx * (Fx - FL))
-        UE = 0.5 * (UR + U - dt/dx * (FR - Fx))
+        UW = self.frac * (UL + U - dt/dx * (Fx - FL))
+        UE = self.frac * (UR + U - dt/dx * (FR - Fx))
 
-        PgW = self._EOS(UW)
-        PgE = self._EOS(UE)
-        FW = self._flux(UW, PgW, axis=-1)
-        FE = self._flux(UE, PgE, axis=-1)
+        FW = self._flux(UW, axis=-1)
+        FE = self._flux(UE, axis=-1)
 
         Un = U - dt/dx * (FE - FW)
 
-        if not self.is2D:
-            return Un 
-        
-        else:
-            Pgn = self._EOS(Un)
-            Fy = self._flux(Un, Pgn, axis=-2)
+        return Un
+    
+    def _step2D(self, rho, ux, uy, E, Pg, dt):
+        dy = self.dy
+        U = self._U(rho, ux, uy, E)
+        Fy = self._flux(U, axis=-2)
 
-            UD = np.roll(Un, 1, axis=-2)
-            UU = np.roll(Un, -1, axis=-2)
-            FD = np.roll(Fy, 1, axis=-2)
-            FU = np.roll(Fy, -1, axis=-2)
+        UD = np.roll(U, 1, axis=-2)
+        UU = np.roll(U, -1, axis=-2)
+        FD = np.roll(Fy, 1, axis=-2)
+        FU = np.roll(Fy, -1, axis=-2)
 
-            US = 0.5 * (UD + Un - dt/dy * (Fy - FD))
-            UN = 0.5 * (UU + Un - dt/dy * (FU - Fy))
+        US = self.frac * (UD + U - dt/dy * (Fy - FD))
+        UN = self.frac * (UU + U - dt/dy * (FU - Fy))
 
-            PgS = self._EOS(US)
-            PgN = self._EOS(UN)
-            FS = self._flux(US, PgS, axis=-2)
-            FN = self._flux(UN, PgN, axis=-2)
+        FS = self._flux(US, axis=-2)
+        FN = self._flux(UN, axis=-2)
 
-            Unn = Un - dt/dy * (FN - FS)
+        Un = self._step1D(rho, ux, uy, E, Pg, dt)
+        Unn = Un - dt/dy * (FN - FS)
 
-            return Unn
+        return Unn
 
 class MacCormack(Schemes):
     r'''
@@ -471,14 +474,12 @@ class MacCormack(Schemes):
         self.method = 'MacCormack'
         super().__init__(gamma, dx, dy, boundary_condition)
 
-    def _step(self, rho, ux, uy, E, Pg, dt):
-        dx, dy = self.dx, self.dy
-
+    def _step1D(self, rho, ux, uy, E, Pg, dt):
+        dx = self.dx 
         pos_x = np.all(ux >= 0)
-        pos_y = np.all(uy >= 0)
 
         U = self._U(rho, ux, uy, E)
-        Fx = self._flux(U, Pg, axis=-1)
+        Fx = self._flux(U, axis=-1)
 
         FL = np.roll(Fx, 1, axis=-1)
         FR = np.roll(Fx, -1, axis=-1)
@@ -488,9 +489,8 @@ class MacCormack(Schemes):
 
         dFx1 = pos_x * fwd_x + (not pos_x) * bck_x
         Uxn = U - dt/dx * dFx1
-        Pgxn = self._EOS(Uxn)
+        Fxn = self._flux(Uxn, axis=-1)
 
-        Fxn = self._flux(Uxn, Pgxn, axis=-1)
         FLn = np.roll(Fxn, 1, axis=-1)
         FRn = np.roll(Fxn, -1, axis=-1)
 
@@ -498,36 +498,38 @@ class MacCormack(Schemes):
         bck_xn = Fxn - FLn 
 
         dFx = pos_x * bck_xn + (not pos_x) * fwd_xn
-        Un = 0.5 * (Uxn + U - dt/dx * dFx)
+        Un = self.frac * (Uxn + U - dt/dx * dFx)
 
-        if not self.is2D:
-            return Un
+        return Un
+    
+    def _step2D(self, rho, ux, uy, E, Pg, dt):
+        dy = self.dy
+        pos_y = np.all(uy >= 0)
+
+        U = self._U(rho, ux, uy, E)
+        Fy = self._flux(U, axis=-2)
+
+        FS = np.roll(Fy, 1, axis=-2)
+        FN = np.roll(Fy, -1, axis=-2)
+
+        fwd_y = FN - Fy 
+        bck_y = Fy - FS 
+
+        dFy1 = pos_y * fwd_y + (not pos_y) * bck_y
+        Uyn = U - dt/dy * dFy1
+        Fyn = self._flux(Uyn, axis=-2)
         
-        else:
-            Pgn = self._EOS(Un)
-            Fy = self._flux(Un, Pgn, axis=-2)
-            
-            FS = np.roll(Fy, 1, axis=-2)
-            FN = np.roll(Fy, -1, axis=-2)
+        FSn = np.roll(Fyn, 1, axis=-2)
+        FNn = np.roll(Fyn, -1, axis=-2)
 
-            fwd_y = FN - Fy 
-            bck_y = Fy - FS 
+        fwd_yn = FNn - Fyn 
+        bck_yn = Fyn - FSn 
 
-            dFy1 = pos_y * fwd_y + (not pos_y) * bck_y
-            Uyn = Un - dt/dy * dFy1
-            Pgyn = self._EOS(Uyn)
+        dFy = pos_y * bck_yn + (not pos_y) * fwd_yn
+        Un = self._step1D(rho, ux, uy, E, Pg, dt)
+        Unn = Un + self.frac * (U + Uyn - dt/dy * dFy)
 
-            Fyn = self._flux(Uyn, Pgyn, axis=-2)
-            FSn = np.roll(Fyn, 1, axis=-2)
-            FNn = np.roll(Fyn, -1, axis=-2)
-
-            fwd_yn = FNn - Fyn 
-            bck_yn = Fyn - FSn 
-
-            dFy = pos_y * bck_yn + (not pos_y) * fwd_yn
-            Unn = 0.5 * (Un + Uyn - dt/dy * dFy)
-
-            return Unn
+        return Unn
         
 class FLIC(Schemes):
     '''
@@ -551,6 +553,8 @@ class FLIC(Schemes):
         elif axis == -2:
             dxy = self.dy
 
+        # UL = self.frac * (U + Uprev - dt/dxy * (F - Fprev))
+        # UR = self.frac * (U + Unext - dt/dxy * (Fnext - F))
         UL = 0.5 * (U + Uprev - dt/dxy * (F - Fprev))
         UR = 0.5 * (U + Unext - dt/dxy * (Fnext - F))
 
@@ -570,6 +574,8 @@ class FLIC(Schemes):
             dxy = self.dy
 
         # Lax-Friedrich flux
+        # LF_L = self.frac * (F + Fprev - dxy/dt * (U - Uprev))
+        # LF_R = self.frac * (F + Fnext - dxy/dt * (Unext - U))
         LF_L = 0.5 * (F + Fprev - dxy/dt * (U - Uprev))
         LF_R = 0.5 * (F + Fnext - dxy/dt * (Unext - U))
 
@@ -578,14 +584,15 @@ class FLIC(Schemes):
                                    dt, axis)
         
         # First-order central flux
+        # FL = self.frac * (LF_L + Ri_L)
+        # FR = self.frac * (LF_R + Ri_R)
         FL = 0.5 * (LF_L + Ri_L)
         FR = 0.5 * (LF_R + Ri_R)
 
         return FL, FR
-
-    def _step(self, rho, ux, uy, E, Pg, dt):
-        dx, dy = self.dx, self.dy 
-
+    
+    def _step1D(self, rho, ux, uy, E, Pg, dt):
+        dx = self.dx 
         U = self._U(rho, ux, uy, E)
         Fx = self._flux(U, axis=-1)
 
@@ -608,32 +615,36 @@ class FLIC(Schemes):
 
         Un = U - dt/dx * (FR - FL)
 
-        if not self.is2D:
-            return Un
+        return Un 
+    
+    def _step2D(self, rho, ux, uy, E, Pg, dt):
+        dy = self.dy 
+        U = self._step1D(rho, ux, uy, E, Pg, dt)
+        # U = self._U(rho, ux, uy, E)
+        Fy = self._flux(U, axis=-2)
+
+        Uprev = np.roll(U, 1, axis=-2)
+        Unext = np.roll(U, -1, axis=-2)
+        Fprev = np.roll(Fy, 1, axis=-2)
+        Fnext = np.roll(Fy, -1, axis=-2)
+
+        FLo_L, FLo_R = self._LO_flux(Uprev, U, Unext, Fprev, Fy,
+                                        Fnext, dt, axis=-2)
         
-        else:
-            Fy = self._flux(Un, axis=-2)
+        FHi_L, FHi_R = self._HO_flux(Uprev, U, Unext, Fprev, Fy,
+                                        Fnext, dt, axis=-2)
+        
+        phiL = self._limiter(Uprev, self.type, self.eps, axis=-2)
+        phiR = self._limiter(U, self.type, self.eps, axis=-2)
 
-            Uprev = np.roll(Un, 1, axis=-2)
-            Unext = np.roll(Un, -1, axis=-2)
-            Fprev = np.roll(Fy, 1, axis=-2)
-            Fnext = np.roll(Fy, -1, axis=-2)
+        FL = FLo_L + phiL * (FHi_L - FLo_L)
+        FR = FLo_R + phiR * (FHi_R - FLo_R)
 
-            FLo_L, FLo_R = self._LO_flux(Uprev, Un, Unext, Fprev, Fy,
-                                         Fnext, dt, axis=-2)
-            
-            FHi_L, FHi_R = self._HO_flux(Uprev, Un, Unext, Fprev, Fy,
-                                         Fnext, dt, axis=-2)
-            
-            phiL = self._limiter(Uprev, self.type, self.eps, axis=-2)
-            phiR = self._limiter(Un, self.type, self.eps, axis=-2)
+        # Un = self._step1D(rho, ux, uy, E, Pg, dt)
+        Unn = U - dt/dy * (FR - FL)
+        # Unn = Un - dt/dy * (FR - FL)
 
-            FL = FLo_L + phiL * (FHi_L - FLo_L)
-            FR = FLo_R + phiR * (FHi_R - FLo_R)
-
-            Unn = Un - dt/dy * (FR - FL)
-
-            return Unn
+        return Unn
         
 class MUSCL(Schemes):
     r'''
@@ -683,29 +694,17 @@ class MUSCL(Schemes):
         FLmin = self._flux(ULmin, axis=axis)
         FRmin = self._flux(URmin, axis=axis)
 
-        FL = 0.5 * (FLmin + FRmin - dxy/dt * (URmin - ULmin))
-        FR = 0.5 * (FLplus + FRplus - dxy/dt * (URplus - ULplus))
+        FL = self.frac * (FLmin + FRmin - dxy/dt * (URmin - ULmin))
+        FR = self.frac * (FLplus + FRplus - dxy/dt * (URplus - ULplus))
 
         dF = -1/dxy * (FR - FL)
 
         return dF
-
-
-    def _step(self, rho, ux, uy, E, Pg, dt):
-        dx, dy = self.dx, self.dy
-
+    
+    def _step1D(self, rho, ux, uy, E, Pg, dt):
+        dx = self.dx 
         U = self._U(rho, ux, uy, E)
-        ULplus, URplus, ULmin, URmin = self._reconstruct(U, axis=-1)
 
-        FLplus = self._flux(ULplus, axis=-1)
-        FRplus = self._flux(URplus, axis=-1)
-        FLmin = self._flux(ULmin, axis=-1)
-        FRmin = self._flux(URmin, axis=-1)
-
-        FL = 0.5 * (FLmin + FRmin - dx/dt * (URmin - ULmin))
-        FR = 0.5 * (FLplus + FRplus - dx/dt * (URplus - ULplus))
-
-        # Un = U - dt/dx * (FR - FL)
         k1 = self._RK_step(U, dx, dt, axis=-1)
         U1tmp = U + dt * k1/2
         U1 = self._set_bc(U1tmp)
@@ -722,8 +721,65 @@ class MUSCL(Schemes):
 
         Un = U + dt/6 * (k1 + 2*k2 + 2*k3 + k4)
 
-        if not self.is2D:
-            return Un
+        return Un
+    
+    def _step2D(self, rho, ux, uy, E, Pg, dt):
+        dy = self.dy 
+        # U = self._step1D(rho, ux, uy, E, Pg, dt)
+        U = self._U(rho, ux, uy, E)
+
+        k1 = self._RK_step(U, dy, dt, axis=-2)
+        U1tmp = U + dt * k1/2
+        U1 = self._set_bc(U1tmp)
         
-        else:
-            raise NotImplementedError('Not yet available')
+        k2 = self._RK_step(U1, dy, dt, axis=-2)
+        U2tmp = U + dt * k2/2
+        U2 = self._set_bc(U2tmp)
+
+        k3 = self._RK_step(U2, dy, dt, axis=-2)
+        U3tmp = U + dt * k3
+        U3 = self._set_bc(U3tmp)
+
+        k4 = self._RK_step(U3, dy, dt, axis=-2)
+
+        Un = self._step1D(rho, ux, uy, E, Pg, dt)
+        Unn = Un + dt/6 * (k1 + 2*k2 + 2*k3 + k4)
+
+        return Unn
+
+    # def _step(self, rho, ux, uy, E, Pg, dt):
+    #     dx, dy = self.dx, self.dy
+
+    #     U = self._U(rho, ux, uy, E)
+    #     ULplus, URplus, ULmin, URmin = self._reconstruct(U, axis=-1)
+
+    #     FLplus = self._flux(ULplus, axis=-1)
+    #     FRplus = self._flux(URplus, axis=-1)
+    #     FLmin = self._flux(ULmin, axis=-1)
+    #     FRmin = self._flux(URmin, axis=-1)
+
+    #     FL = 0.5 * (FLmin + FRmin - dx/dt * (URmin - ULmin))
+    #     FR = 0.5 * (FLplus + FRplus - dx/dt * (URplus - ULplus))
+
+    #     # Un = U - dt/dx * (FR - FL)
+    #     k1 = self._RK_step(U, dx, dt, axis=-1)
+    #     U1tmp = U + dt * k1/2
+    #     U1 = self._set_bc(U1tmp)
+        
+    #     k2 = self._RK_step(U1, dx, dt, axis=-1)
+    #     U2tmp = U + dt * k2/2
+    #     U2 = self._set_bc(U2tmp)
+
+    #     k3 = self._RK_step(U2, dx, dt, axis=-1)
+    #     U3tmp = U + dt * k3
+    #     U3 = self._set_bc(U3tmp)
+
+    #     k4 = self._RK_step(U3, dx, dt, axis=-1)
+
+    #     Un = U + dt/6 * (k1 + 2*k2 + 2*k3 + k4)
+
+    #     if not self.is2D:
+    #         return Un
+        
+    #     else:
+    #         raise NotImplementedError('2D version not yet available')

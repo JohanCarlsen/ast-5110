@@ -1,452 +1,248 @@
 import numpy as np
-from .schemes.schemes import *
 from scipy.optimize import fsolve
 import matplotlib.pyplot as plt 
+from time import perf_counter_ns
+from mpl_toolkits.axes_grid1 import make_axes_locatable
+
+if __name__ == '__main__':
+    from schemes.schemes import *
+
+else:
+    from .schemes.schemes import *
 
 SOLVERS = {'lf': LaxFriedrich, 'lw': LaxWendroff, 'roe': Roe,
            'mc': MacCormack, 'flic': FLIC, 'muscl': MUSCL}
 
 class HDSolver:
-    r'''
-    Hydrodynamic solver class.
+    def __init__(self, rho0, ux0, Pg0, E0, dx, x0, xf, nt, cfl_cut,
+                 gamma, verbose):
+        
+        self.x0 = x0; self.xf = xf
+        self.cfl = cfl_cut
+        self.g = gamma 
+        self.dx = dx 
+        self.N = nt 
+        self.t = np.zeros(nt)
+        self.verbose = verbose
+
+        ny, nx = rho0.shape
+
+        self.rho = np.zeros((ny, nx, nt))
+        self.ux = np.zeros((ny, nx, nt))
+        self.Pg = np.zeros((ny, nx, nt))
+        self.E = np.zeros((ny, nx, nt))
+
+        self.rho[..., 0] = rho0 
+        self.ux[..., 0] = ux0 
+        self.Pg[..., 0] = Pg0 
+        self.E[..., 0] = E0
+
+class HDSolver2D(HDSolver):
+    '''
+    Solver for the 2D HD equations.
 
     Parameters
     ----------
-    nx : `int`
-        Number of grid points in the x-direction.
+    rho0, ux0, uy0, Pg0, E0, T0 : `ndarray`
+        Initial conditions for density, horizontal and vertical
+        velocity, gas pressure, total energy, and temperature. 
 
-    ny : `int`, default=1
-        Number of grid points in the y-direction. Defaults to 1, which 
-        is the 1D case.
+    dx, dy : `float`
+        Spatial step lengths.
 
-    lx, ly : `int`, default=1
-        Length of simulation box in x and y directions. 
+    x0, xf, y0, yf : `int` or `float`, optional 
+        Corners of the simulation box. Default=[0, 1, 0, 1].
+
+    force : `bool`, default=`False`
+        Weather to add gravity force to the system.
+
+    nt : `int`, default=100
+        Number of time steps to simulate.
+
+    cfl_cut : `float`, default=0.9
+        CFL condition to limit the timestep.
 
     gamma : `float`, default=5/3
-        Ratio of specific heats. 
+        Ratio of specific heats.
 
-    nt : `int`, default=100 
-        Number of timesteps to simulate.
-    
-    cfl_cut : `float`, default=0.9
-        CFL number.
+    solver : {'roe', 'mc', 'lf', 'lw', 'muscl', 'flic'}, default='roe'
+        Solver/scheme to use. 
 
-    PgL, PgR, rhoL, rhoR : `float`, default `None`
-        In the 1D case, `PgL` and `rhoL` represent the left,
-        respectively right gas pressure and dneisty.
+            * 'roe' : Roe-Pike
+            * 'mc' : Mac Cormack
+            * 'lf' : Lax-Friedrich
+            * 'lw' : Lax-Wendroff
+            * 'muscl' : MUSCL
+            * 'flic' : Flux-limiter central 
 
-    rho0, Pg0, ux0, uy0 : `float`, default=1
-        In the 1D case, these variables represent the initial values of
-        the density, gas pressure, horizontal and vertical velocities.
+    bc : {'periodic', 'constant', 'noslip'}, default='periodic'
+        Boundary conditions.
 
-    rho1, rho2 : `float`, optional 
-        In the 2D case, `rho1` (default=`1e-11`) and `rho2`
-        (default=`1e-9`) represent the densities in the corona and
-        upper chromosphere, respectively.
-
-    KHI : `bool`, default=`False`
-        If `True`, the initial condition is set to simulate the 
-        Kelvin-Helmholtz instability.
-
-    n_regions : int, defaut=3
-        When `KHI` is `True`, this sets the number of regions in the 
-        initial condition.
+    verbose : `bool`, default=`True`
+        Output progression.
     '''
-    def __init__(self, nx, ny=1, lx=1, ly=1, gamma=5/3, nt=100,
-                 cfl_cut=0.9, PgL=None, PgR=None, rhoL=None, rhoR=None,
-                 rho0=1, Pg0=1, ux0=1, uy0=1, rho1=1e-11, rho2=1e-9,
-                 KHI=False, n_regions=3, **kwargs):
+    def __init__(self, rho0: np.ndarray, ux0: np.ndarray,
+                 uy0: np.ndarray, Pg0: np.ndarray, E0: np.ndarray,
+                 T0: np.ndarray, dx: float, dy: float, x0=0, xf=1, y0=0,
+                 yf=1, force=False, nt=100, cfl_cut=0.9, gamma=5/3,
+                 solver='roe', bc='periodic', verbose=True, **kwargs):
         
-        self.g = gamma 
-        self.N = nt 
-        self.cfl = cfl_cut
-        self.nx = nx 
-        self.ny = ny 
-        self.dx = lx / nx 
-        self.dy = ly / ny 
+        self.y0 = y0; self.yf = yf 
+        self.dy = dy 
+        self.solver = SOLVERS[solver](gamma, dx, dy, bc, **kwargs)
+        self.scheme_name = self.solver.method
 
-        self.t = np.zeros(nt)
-        self.is2D = False
-        self.scheme_name = None
-        self._create_box()
+        ny, nx = rho0.shape
+        x = np.linspace(x0, xf, nx)
+        y = np.linspace(y0, yf, ny)
+        self.x, self.y = np.meshgrid(x, y)
+        self.r = np.sqrt(self.x**2 + self.y**2)
 
-        self.mu = 0.61
-        self.m_u = 1.66e-27
-        self.k_B = 1.38e-23
-
-        if ny > 1:
-            self.is2D = True
-
-        if not self.is2D:
-            self._set_initial_1D(rhoL, rhoR, PgL, PgR)
-
-        elif not KHI:
-            self._set_initial_2D(rho0, Pg0, ux0, uy0, **kwargs)
+        if force:
+            self.force = self._gravity
 
         else:
-            self._set_initial_KHI(Pg0, rho0, rho1, rho2, n_regions)
+            self.force = lambda x: (0, 0)
 
-    def _create_box(self):
-            r'''
-            Creates the simulation box.
-            '''
-            nx, ny, N = self.nx, self.ny, self.N
-
-            self.rho = np.zeros((ny, nx, N))
-            self.ux = np.zeros((ny, nx, N))
-            self.uy = np.zeros((ny, nx, N))
-            self.E = np.zeros((ny, nx, N))
-            self.Pg = np.zeros((ny, nx, N))
-            self.T = np.zeros((ny, nx, N))
-
-    @staticmethod
-    def _gauss(x, x0, y, y0, A=1, sigma=5, **kwargs):
-        r'''
-        Static method for a gaussian surface.
-
-        Parameters
-        ----------
-        x, y : `int` or `float`
-            The x and y variables.
-
-        x0, y0 : `int` or `float`
-            The center of the gaussian.
-
-        A : `int` or `float`, default=1
-            Amplitude.
-
-        sigma : `int`or `float`, default=5
-            Standard deviation of the gaussian.
-
-        Returns
-        -------
-        ndarray : 
-            Returns the gaussian surface.
-        '''
-        P1 = ((x - x0) / sigma)**2
-        P2 = ((y - y0) / sigma)**2
-
-        return A * np.exp(-0.5 * (P1 + P2))
-
-    def _hyper_tan(self, y, A, HW=1, n_regions=3, **kwargs):
-        r'''
-        Hyperbolic tangent function.
-
-        .. math::
-            f(y)=\frac{1}{2}A\bigg[1+\tanh\big(\frac{y}{HW}\big)\bigg]
-
-        Parameters
-        ----------
-        y : `int` or `float`
-            y coordinate.
-
-        A : `int` or `float`
-            Amplitude.
-
-        HW : `int` or `float`, default=1
-            Half-width.
-
-        n_regions : `int`, default=3
-            Number of regions to divide the simulation box into.
-
-        Returns
-        -------
-        ndarray : 
-            The function.
-        '''
-        if n_regions == 3:
-            arg1 = y - self.ny/4
-            arg2 = 3 * self.ny/4 - y 
-
-            if y < self.ny/2:
-                return A * 0.5 * (1 + np.tanh(arg1 / HW))
-            
-            else:
-                return A * 0.5 * (1 + np.tanh(arg2 / HW))
-            
-        else:
-            arg = y - self.ny/2
-
-            return A * 0.5 * (1 + np.tanh(arg / HW))
-
-    def _set_initial_1D(self, rhoL, rhoR, PgL, PgR):
-        r'''
-        Fills the arrays according to the left and right initial values.
-
-        Parameters
-        ----------
-        rhoL, rhoR : `float`
-            Left, respectively right initial density values.
-
-        PgL, PgR : `float`
-            Left, respectively right initial gas pressure values.
-        '''
-        nx = self.nx
-        inds = np.arange(self.nx)
-
-        self.rho[..., 0] = np.where(inds < nx//2, rhoL, rhoR)
-        self.Pg[..., 0] = np.where(inds < nx//2, PgL, PgR)
-        self.E[..., 0] = self.Pg[..., 0] / ((self.g - 1) * self.rho[..., 0])
-
-    def _set_initial_2D(self, rho0, Pg0, ux0, uy0, **kwargs):
-        r'''
-        Initialize a 2D simulation box.
-
-        Parameters
-        ----------
-        rho0, Pg0, ux0, uy0 : `float`
-            Initial values for the density, gas pressure, horizontal and
-            vertical velocities. 
-        '''
-        nx, ny = self.nx, self.ny
-        g, mu, m_u, k_B = self.g, self.mu, self.m_u, self.k_B
-        x0, y0 = nx/2, ny/2
-
-        if rho0 is None:
-            rho0 = np.zeros((ny, nx)) + Pg0 * self.g
-
-        else:
-            rho0 = np.zeros((ny, nx)) + rho0
-
-        for y in range(ny):
-            for x in range(nx):
-                rho0[y, x] += self._gauss(x, x0, y, y0, **kwargs)
+        super().__init__(rho0, ux0, Pg0, E0, dx, x0, xf, nt, cfl_cut,
+                         gamma, verbose)
         
-        T0 = Pg0 / rho0 * mu * m_u / k_B
-        e0 = k_B * T0 / (mu * m_u)
-        
-        self.rho[..., 0] = rho0
-        self.ux[..., 0] = ux0
+        self.uy = np.zeros_like(self.ux)
+        self.T = np.zeros_like(self.ux)
+
         self.uy[..., 0] = uy0
-        self.Pg[..., 0] = Pg0 
-        self.T[..., 0] = T0 
-        self.E[..., 0] = e0 + 0.5 * (ux0**2 + uy0**2)
+        self.T[..., 0] = T0
 
-    def _set_initial_KHI(self, Pg0, rho0, rho1, rho2, n_regions):
-        r'''
-        Set the initial state for the simulation box to simulate the 
-        Kelvin-Helmholtz instability (KHI).
+        self._evolve()
 
-        Parameters
-        ----------
-        Pg0, rho0 : `float`
-            Initial values for gas pressure and density.
+    def _gravity(self, rho, M=1e5):
+        G = 6.67e-11
+        r, x, y = self.r, self.x, self.y
+        F = -rho * G * M / r**2
+        Fx = F * x / np.linalg.norm(r)
+        Fy = F * y / np.linalg.norm(r)
 
-        rho1, rho2 : `float`
-            If `n_regions` is 3, these initial density values are used.
+        return Fx, Fy
 
-        n_regions : `int`
-            Number of regions to divide the simulation box into.
-        '''
-        nx, ny = self.nx, self.ny
-        g, mu, m_u, k_B = self.g, self.mu, self.m_u, self.k_B
-
-        ux0 = np.zeros((ny, nx))
-        uy0 = np.zeros((ny, nx))
-
-        if n_regions == 2:
-            rho0 = np.zeros((ny, nx)) + rho0
-            Pg0 = np.zeros((ny, nx)) + Pg0
-
-            for y in range(ny):
-                ux0[y, :] += self._hyper_tan(y, 1, n_regions=n_regions)
-                Pg0[y, :] -= self._hyper_tan(y, 0.1, n_regions=n_regions)
-
-                for x in range(nx):
-                    uy0[y, x] += self._gauss(x, nx/4, y, ny/2, 1, 5) \
-                               + self._gauss(x, 3*nx/4, y, ny/2, 0.1, 10)
-
-        elif n_regions == 3:
-            dRho = rho2-rho1
-            rho0 = np.zeros((ny, nx)) + rho2
-
-            for y in range(ny):
-                rho0[y, :] -= self._hyper_tan(y, dRho)
-                ux0[y, :] += self._hyper_tan(y, 1e5)
-                
-                for x in range(nx):
-                    uy0[y, x] += self._gauss(x, nx/2, y, ny/2, 2e5, 10)
-        
-        T0 = Pg0 / rho0 * mu * m_u / k_B
-        e0 = k_B * T0/ (mu * m_u)
-
-        self.rho[..., 0] = rho0
-        self.ux[..., 0] = ux0
-        self.uy[..., 0] = uy0
-        self.Pg[..., 0] = Pg0
-        self.T[..., 0] = T0 
-        self.E[..., 0] = e0 + 0.5 * (ux0**2 + uy0**2)
-    
-    def _timestep(self, Pg, rho, ux, uy):
-        r'''
-        Calculate the timestep.
-
-        Parameters
-        ----------
-        Pg, rho, ux, uy : `ndarray`
-            Gas pressure, density, horizontal and vertical velocities.
-
-        Returns
-        -------
-        dt : `float`
-            Timestep 
-        '''
+    def _timestep(self, rho, ux, uy, Pg):
         dx, dy = self.dx, self.dy 
-
         cs = np.sqrt(self.g * Pg / rho)
-        tmp_x = np.max(np.abs(ux) + cs) / dx
+        xterm = np.max(np.abs(ux) + cs) / dx 
+        yterm = np.max(np.abs(uy) + cs) / dy 
+        dt = self.cfl / (xterm + yterm)
 
-        if not self.is2D:
-            dt = self.cfl / tmp_x
+        return dt 
 
-        else:
-            tmp_y = np.max(np.abs(uy) + cs) / dy 
-            dt = self.cfl / (tmp_x + tmp_y)
-
-        return dt
-    
-    def evolve(self, method='lw', bc='constant', verbose=False,
-               **kwargs):
-        r'''
-        Evolve the system.
-
-        Parameters
-        ----------
-        method : `{'lw', 'lf', 'mc', 'roe', 'muscl', 'flic'}`, default=`'lw'`
-            Which numerical scheme to use.
-
-                * `'lw'` : The Lax-Wendroff scheme
-                * `'lf'` : The Lax-Friedrich shceme
-                * `'mc'` : The Mac Cormack scheme
-                * `'roe'` : The Roe-Pike scheme
-                * `'muscl'` : The MUSCL scheme
-                * `'flic'` : The flux llimiter central scheme
-
-        bc : `{'constant', 'periodic', 'noslip'}`, default=`'constant'`
-            Boundary condition.
-
-        verbose : `bool`, default=`False`
-            If `True`, output progress to terminal.
-
-        **kwargs : `dict`, optional
-            Additional arguments for the FLIC and MUSCL schemes.
-
-            Valid keyword arguments are:
-
-            Properties:
-            limit_func : `{'minmod', 'superbee', 'vanleer'}`, default=`'minmod'`
-                The flux limiter function.
-
-            epsilon : `float`, default=`1e-8`
-                Small constant to avoid division by zero when
-                computing the succesive gradient.
-
-            beta : `float`, default=1/3
-                Constant used in the parabolic reconstruction. Only used
-                for the MUSCL scheme.
-        '''
-        solver = SOLVERS[method](self.g, self.dx, self.dy, bc, **kwargs)
-
-        self.scheme_name = solver.method
-
+    def _evolve(self):
+        t1 = perf_counter_ns()
         for i in range(self.N - 1):
             r = self.rho[..., i]
             ux = self.ux[..., i]
             uy = self.uy[..., i]
             Pg = self.Pg[..., i]
             E = self.E[..., i]
-            dt = self._timestep(Pg, r, ux, uy)
+            dt = self._timestep(r, ux, uy, Pg)
 
-            rn, uxn, uyn, En, Pgn = solver.update(r, ux, uy, E, Pg,
-                                                  dt)
+            rn, uxn, uyn, En, Pgn = self.solver.update(r, ux, uy, E,
+                                                       Pg, dt)
             
-            if self.is2D:
-                self.T[..., i+1] = Pgn / (rn * self.g)
-                
-            self.rho[..., i+1] = rn
-            self.ux[..., i+1] = uxn
-            self.uy[..., i+1] = uyn
+            Fx, Fy = self.force(rn)
+            uxn += Fx
+            uyn += Fy
+            
+            self.rho[..., i+1] = rn 
+            self.ux[..., i+1] = uxn 
+            self.uy[..., i+1] = uyn 
             self.E[..., i+1] = En
             self.Pg[..., i+1] = Pgn
-            self.t[i+1] = self.t[i] + dt
+            self.T[..., i+1] = Pgn / (rn * self.g)
+            self.t[i+1] = self.t[i] + dt 
 
             if np.isnan(dt):
-                self.rho = self.rho[..., :i+2]
-                self.ux = self.ux[..., :i+2]
-                self.uy = self.uy[..., :i+2]
-                self.E = self.E[..., :i+2]
-                self.Pg = self.Pg[..., :i+2]
-                self.T = self.T[..., :i+2]
-                self.t = self.t[..., :i+2]
                 break
 
-            if verbose:
-                perc = (i+1) / (self.N-1) * 100
-                print(f'  Progress: {perc:6.2f} % completed', end='\r')
+            if self.verbose:
+                progr = (i+1) / (self.N-1) * 100 
+                print(f' Progress: {progr:6.2f} % completed', end='\r')
 
-        if verbose:
+        t2 = perf_counter_ns()
+        if self.verbose:
             print('')
-
-    def get_arrays(self):
-        r'''
-        Return the arrays from the simulation.
-        
-        Note that since the timestep is calculated using the gas
-        pressure and density, it is possible that `NaN` values are
-        present. The method checks this, and excludes them. Also, if
-        the simulation is 1D, the method does not return vertical 
-        velocity or temperature.
+            time = (t2 - t1) * 1e-9
+            print(f' Time elapsed: {time:.3f} seconds')
+            
+    def get_arrays(self) -> tuple:
+        '''
+        Return the arrays of the simulation. Note that if the simulation
+        has generated negative pressure, the returns are cut to exclude
+        `nan` values in the time array.
 
         Returns
         -------
-        t, rho, ux, uy, E, Pg, T : `ndarray`
-            Arrays for time, density, horizontal and vertical velocity,
-            internal energy, and gas pressure and temperature. 
-        '''
-        idx = np.isnan(self.t)
-        t = self.t[~idx]
+        t : `array_like`
+            Time array.
 
+        rho, ux, uy, E, Pg, T : `ndarray`
+            Density, horizontal and vertical velocity, total energy,
+            gas pressure, and temperature arrays.
+        '''
         if np.any(np.isnan(self.t)):
+            idx = np.argwhere(np.isnan(self.t))[0][0]
+            t = self.t[:idx]
             n = self.N - len(t)
             print(f'Warning: Excluding {n} NaN values out of {self.N} total.')
 
-        rho = self.rho[..., ~idx]
-        ux = self.ux[..., ~idx]
-        uy = self.uy[..., ~idx]
-        E = self.E[..., ~idx]
-        Pg = self.Pg[..., ~idx]
-        T = self.T[..., ~idx]
-        
-        if self.is2D:
-            return t, rho, ux, uy, E, Pg, T 
-        
         else:
-            return t, rho, ux, E, Pg
-    
-    def get_errors(self, metric='maxabs'):
-        METRICS = {'maxabs': lambda x, y: np.max(np.abs(x - y)),
-                   'square': lambda x, y: np.sum(x - y)**2 / y.size}
+            idx = self.N
+            t = self.t
+
+        rho = self.rho[..., :idx]
+        ux = self.ux[..., :idx]
+        uy = self.uy[..., :idx]
+        E = self.E[..., :idx]
+        Pg = self.Pg[..., :idx]
+        T = self.T[..., :idx]
+
+        return t, rho, ux, uy, E, Pg, T
+
+class HDSolver1D(HDSolver):
+    def __init__(self, rho0, ux0, Pg0, E0, dx, x0=0, xf=1, nt=100,
+                 cfl_cut=0.9, gamma=5/3, solver='roe',
+                 bc='constant', verbose=False, **kwargs):
         
-        err_metric = METRICS[metric]
+        self.solver = SOLVERS[solver](gamma, dx, 1, bc, **kwargs)
+        self.scheme_name = self.solver.method
+        
+        super().__init__(rho0, ux0, Pg0, E0, dx, x0, xf, nt, cfl_cut,
+                         gamma, verbose)
+        
+        self._evolve()
 
-        t, rho, u, e, Pg = self.get_arrays()
-        rhoerr = np.zeros_like(t)
-        uerr = np.zeros_like(t)
-        eerr = np.zeros_like(t)
-        Pgerr = np.zeros_like(t)
+    def _timestep(self, rho, ux, Pg):
+        dx = self.dx 
+        cs = np.sqrt(self.g * Pg / rho)
+        dt = self.cfl * dx / np.max(np.abs(ux) + cs)
 
-        for i in range(len(t)):
-            rhoa, ua, ea, Pga = sod_analytical(self.rhoL, self.rhoR,
-                                             self.PgL, self.PgR,
-                                             self.Nx, t[i],
-                                             gamma=self.g)
-            
-            rhoerr[i] = err_metric(rho[:, i], rhoa)
-            uerr[i] = err_metric(u[:, i], ua)
-            eerr[i] = err_metric(e[:, i], ea)
-            Pgerr[i] = err_metric(Pg[:, i], Pga)
+        return dt 
 
-        return t, rhoerr, uerr, eerr, Pgerr
+    def _evolve(self):
+        for i in range(self.N - 1):
+            r = self.rho[..., i]
+            ux = self.ux[..., i]
+            Pg = self.Pg[..., i]
+            E = self.E[..., i]
+            dt = self._timestep(r, ux, Pg)
+
+            rn, uxn, _, En, Pgn = self.solver.update(r, ux, 0, E, Pg, dt)
+
+            self.rho[..., i+1] = rn 
+            self.ux[..., i+1] = uxn 
+            self.Pg[..., i+1] = Pgn 
+            self.E[..., i+1] = En 
+            self.t[i+1] = self.t[i] + dt
+
+    def get_arrays(self):
+        return self.t, self.rho, self.ux, self.E, self.Pg
 
 def Pg4_func(Pg4, Pg1, Pg5, rho1, rho5, gamma):
     g = gamma 
@@ -565,6 +361,28 @@ def sod_analytical(rhoL, rhoR, PgL, PgR, nx, t, uL=0, uR=0, gamma=5/3):
 
     return rho, u, e, Pg
 
-    
+if __name__ == '__main__':
+    from initial_condition import InitConds
+    gamma = 5/3
+    rhoL = 0.125
+    rhoR = 1.0
+    PgL = 0.125 / gamma
+    PgR = 1.0 / gamma
+
+    rhoL, rhoR, PgL, PgR = rhoR, rhoL, PgR, PgL
+
+    nx = 500
+    N = 250
+
+    ic = InitConds(nx)
+    ic.shocktube(rhoL, rhoR, PgL, PgR)
+
+    dx, rho, ux, Pg, E = ic.get_ICs()
+
+    HD = HDSolver1D(rho, ux, Pg, E, dx, nt=N)
+
+
+
+
 
 
