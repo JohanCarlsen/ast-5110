@@ -25,7 +25,7 @@ dx, dy, rho0, ux0, uy0, E0, Pg0, T0 = ic.get_ICs()
 solvers = ['roe', 'lf', 'lw', 'mc', 'flic', 'muscl']
 
 for solver in solvers:
-    if not solver in ['roe']:
+    if not solver in ['flic']:
         continue
     print('')
     print(f'Running: {solver}')

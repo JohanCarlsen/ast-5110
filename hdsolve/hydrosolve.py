@@ -84,12 +84,14 @@ class HDSolver2D(HDSolver):
     def __init__(self, rho0: np.ndarray, ux0: np.ndarray,
                  uy0: np.ndarray, Pg0: np.ndarray, E0: np.ndarray,
                  T0: np.ndarray, dx: float, dy: float, x0=0, xf=1, y0=0,
-                 yf=1, force=False, nt=100, cfl_cut=0.9, gamma=5/3,
+                 yf=1, gravity=False, nt=100, cfl_cut=0.9, gamma=5/3,
                  solver='roe', bc='periodic', verbose=True, **kwargs):
         
         self.y0 = y0; self.yf = yf 
         self.dy = dy 
-        self.solver = SOLVERS[solver](gamma, dx, dy, bc, **kwargs)
+        self.solver = SOLVERS[solver](gamma, x0, xf, y0, yf, dx, dy,
+                                      bc, gravity, **kwargs)
+        
         self.scheme_name = self.solver.method
 
         ny, nx = rho0.shape
@@ -97,12 +99,6 @@ class HDSolver2D(HDSolver):
         y = np.linspace(y0, yf, ny)
         self.x, self.y = np.meshgrid(x, y)
         self.r = np.sqrt(self.x**2 + self.y**2)
-
-        if force:
-            self.force = self._gravity
-
-        else:
-            self.force = lambda x: (0, 0)
 
         super().__init__(rho0, ux0, Pg0, E0, dx, x0, xf, nt, cfl_cut,
                          gamma, verbose)
@@ -142,13 +138,9 @@ class HDSolver2D(HDSolver):
             Pg = self.Pg[..., i]
             E = self.E[..., i]
             dt = self._timestep(r, ux, uy, Pg)
-
-            rn, uxn, uyn, En, Pgn = self.solver.update(r, ux, uy, E,
-                                                       Pg, dt)
-            
-            Fx, Fy = self.force(rn)
-            uxn += Fx
-            uyn += Fy
+            rn, uxn, uyn, En, Pgn = self.solver.update(
+                r, ux, uy, E, Pg, dt
+            )
             
             self.rho[..., i+1] = rn 
             self.ux[..., i+1] = uxn 
@@ -210,7 +202,10 @@ class HDSolver1D(HDSolver):
                  cfl_cut=0.9, gamma=5/3, solver='roe',
                  bc='constant', verbose=False, **kwargs):
         
-        self.solver = SOLVERS[solver](gamma, dx, 1, bc, **kwargs)
+        kwargs['c'] = cfl_cut
+        self.solver = SOLVERS[solver](gamma, x0, xf, 0, 1, dx, 1, bc,
+                                      **kwargs)
+        
         self.scheme_name = self.solver.method
         
         super().__init__(rho0, ux0, Pg0, E0, dx, x0, xf, nt, cfl_cut,
@@ -233,7 +228,9 @@ class HDSolver1D(HDSolver):
             E = self.E[..., i]
             dt = self._timestep(r, ux, Pg)
 
-            rn, uxn, _, En, Pgn = self.solver.update(r, ux, 0, E, Pg, dt)
+            rn, uxn, _, En, Pgn = self.solver.update(
+                r, ux, 0, E, Pg, dt
+            )
 
             self.rho[..., i+1] = rn 
             self.ux[..., i+1] = uxn 
@@ -242,7 +239,22 @@ class HDSolver1D(HDSolver):
             self.t[i+1] = self.t[i] + dt
 
     def get_arrays(self):
-        return self.t, self.rho, self.ux, self.E, self.Pg
+        if np.any(np.isnan(self.t)):
+            idx = np.argwhere(np.isnan(self.t))[0][0]
+            t = self.t[:idx]
+            n = self.N - len(t)
+            print(f'Warning: Excluding {n} NaN values out of {self.N} total.')
+
+        else:
+            idx = self.N
+            t = self.t
+
+        rho = self.rho[..., :idx]
+        ux = self.ux[..., :idx]
+        E = self.E[..., :idx]
+        Pg = self.Pg[..., :idx]
+
+        return t, rho, ux, E, Pg
 
 def Pg4_func(Pg4, Pg1, Pg5, rho1, rho5, gamma):
     g = gamma 

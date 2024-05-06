@@ -33,22 +33,59 @@ class Schemes:
 
             * `'noslip'` : Reflective walls.
     '''
-    def __init__(self, gamma, dx, dy, boundary_condition='constant'):
+    def __init__(self, gamma, x0, xf, y0, yf, dx, dy,
+                 boundary_condition='constant', gravity=False):
+        
         self.g = gamma 
         self.dx = dx
         self.dy = dy
         self.bc = boundary_condition
+        self.gravity = gravity
         self.two_bc = False
+
+        self.nx = int((xf - x0) / dx)
+        self.ny = int((yf - y0) / dy)
         
         if dy < 1:
             self.is2D = True
             self.frac = 0.25
             self._step = self._step2D
 
+            x = np.linspace(x0, xf, self.nx)
+            y = np.linspace(y0, yf, self.ny)
+
+            self.x, self.y = np.meshgrid(x, y)
+            self.r = np.sqrt(self.x**2 + self.y**2)
+
         else:
             self.is2D = False 
             self.frac = 0.5
             self._step = self._step1D
+            self.r, self.x, self.y = 1, 1, 1
+
+    def _gravity(self, rho, axis, M=1e5, **kwargs):
+        if self.gravity:
+            G = 6.67e-11
+            r, x, y = self.r, self.x, self.y
+            
+            F = -G * M / r**2
+            Fx = np.zeros((4, self.ny, self.nx))
+            Fy = np.zeros_like(Fx)
+
+            # Fx[1] = F * x / np.linalg.norm(r)
+            Fx[1] = F * x / np.abs(x)
+            # Fy[2] = F * y / np.linalg.norm(r)
+            Fy[2] = F * y / np.abs(y)
+
+            if axis == -1:
+                return Fx
+            
+            elif axis == -2:
+                return Fy
+            
+        else:
+            return 0
+
 
     def _step1D(self):
         raise NotImplementedError
@@ -147,6 +184,14 @@ class Schemes:
 
             Utmp[..., 0] = self.U0
             Utmp[..., -1] = self.U1
+
+        elif self.bc == 'transmissive':
+            if self.is2D:
+                Utmp[:, 0, :] = Utmp[:, 1, :]
+                Utmp[:, -1, :] = Utmp[:, -2, :]
+                
+            Utmp[..., 0] = Utmp[..., 1]
+            Utmp[..., -1] = Utmp[..., -2]
 
         elif self.bc == 'periodic' or self.bc == 'noslip':
             for i in range(Utmp.shape[0]):
@@ -300,19 +345,19 @@ class Schemes:
         Up1 = np.roll(U, -1, axis=axis)
         Um1 = np.roll(U, 1, axis=axis)
 
-        num = np.where(np.abs(U - Um1) < epsilon, 0, U-Um1)
+        num = U-Um1
         den = np.where(np.abs(Up1 - U) < epsilon, epsilon, Up1-U)
 
         r = num/den
         zero = np.zeros_like(r)
         one = np.ones_like(r)
-
         sb = lambda r: np.maximum(zero,
                                   np.minimum(2*r, one),
                                   np.minimum(r, 2*one)
                                   )
         
-        mm = lambda r: np.maximum(zero, np.minimum(one, r))
+        mm = lambda r: np.maximum(0, np.minimum(0.75, r))
+        # mm = lambda r: np.maximum(zero, np.minimum(one, r))
 
         vl = lambda r: (r + np.abs(r)) / (1 + np.abs(r))
 
@@ -347,9 +392,12 @@ class Roe(Schemes):
     r'''
     The Roe-Pike scheme. 
     '''
-    def __init__(self, gamma, dx, dy, boundary_condition='constant', **kwargs):
+    def __init__(self, gamma, x0, xf, y0, yf, dx, dy,
+                 boundary_condition='constant', gravity=False, **kwargs):
+        
         self.method = 'Roe'
-        super().__init__(gamma, dx, dy, boundary_condition)
+        super().__init__(gamma, x0, xf, y0, yf, dx, dy,
+                         boundary_condition, gravity)
 
     def _step1D(self, rho, ux, uy, E, Pg, dt):
         dx = self.dx 
@@ -359,8 +407,9 @@ class Roe(Schemes):
         Uxm = np.roll(U, 1, axis=-1)
         Pgxm = self._EOS(Uxm)
         FRoexM = self._Roe_flux(Uxm, Pgxm, -1)
+        force = self._gravity(rho, axis=-1)
 
-        dFx = FRoexP - FRoexM
+        dFx = (FRoexP - FRoexM) + force
         Un = U - dt/dx * dFx
 
         return Un 
@@ -373,8 +422,9 @@ class Roe(Schemes):
         Uym = np.roll(U, 1, -2)
         Pgym = self._EOS(Uym)
         GRoeyM = self._Roe_flux(Uym, Pgym, -2)
+        force = self._gravity(rho, axis=-2)
 
-        dFy = GRoeyP - GRoeyM
+        dFy = (GRoeyP - GRoeyM) + force
         Un = self._step1D(rho, ux, uy, E, Pg, dt)
         Unn = Un - dt/dy * dFy
 
@@ -384,9 +434,12 @@ class LaxFriedrich(Schemes):
     r'''
     The Lax-Friedrich scheme.
     '''
-    def __init__(self, gamma, dx, dy, boundary_condition='constant', **kwargs):
+    def __init__(self, gamma, x0, xf, y0, yf, dx, dy,
+                 boundary_condition='constant', gravity=False, **kwargs):
+        
         self.method = 'Lax-Friedrich'
-        super().__init__(gamma, dx, dy, boundary_condition)
+        super().__init__(gamma, x0, xf, y0, yf, dx, dy,
+                         boundary_condition, gravity)
 
     def _step1D(self, rho, ux, uy, E, Pg, dt):
         dx = self.dx 
@@ -421,9 +474,12 @@ class LaxWendroff(Schemes):
     r'''
     The Lax-Wendroff scheme.
     '''
-    def __init__(self, gamma, dx, dy, boundary_condition='constant', **kwargs):
+    def __init__(self, gamma, x0, xf, y0, yf, dx, dy,
+                 boundary_condition='constant', gravity=False, **kwargs):
+        
         self.method = 'Lax-Wendroff'
-        super().__init__(gamma, dx, dy, boundary_condition)
+        super().__init__(gamma, x0, xf, y0, yf, dx, dy,
+                         boundary_condition, gravity)
 
     def _step1D(self, rho, ux, uy, E, Pg, dt):
         dx = self.dx 
@@ -470,9 +526,12 @@ class MacCormack(Schemes):
     r'''
     The Mac Cormack scheme.
     '''
-    def __init__(self, gamma, dx, dy, boundary_condition='constant', **kwargs):
+    def __init__(self, gamma, x0, xf, y0, yf, dx, dy,
+                 boundary_condition='constant', gravity=False, **kwargs):
+        
         self.method = 'MacCormack'
-        super().__init__(gamma, dx, dy, boundary_condition)
+        super().__init__(gamma, x0, xf, y0, yf, dx, dy,
+                         boundary_condition, gravity)
 
     def _step1D(self, rho, ux, uy, E, Pg, dt):
         dx = self.dx 
@@ -535,13 +594,16 @@ class FLIC(Schemes):
     '''
     The Flux LImiter Center scheme.
     '''
-    def __init__(self, gamma, dx, dy, boundary_condition='constant',
-                 limit_func='minmod', epsilon=1e-8, **kwargs):
+    def __init__(self, gamma, x0, xf, y0, yf, dx, dy,
+                 boundary_condition='constant', gravity=False,
+                 limit_func='superbee', epsilon=1e-8, c=0.9, **kwargs):
         
-        self.method = 'FLIC'
+        self.method = 'FLIC+' + limit_func
         self.type = limit_func
         self.eps = epsilon
-        super().__init__(gamma, dx, dy, boundary_condition)
+        self.phi_g = (1 - c) / (1 + c)
+        super().__init__(gamma, x0, xf, y0, yf, dx, dy,
+                         boundary_condition, gravity)
     
     def _HO_flux(self, Uprev, U, Unext, Fprev, F, Fnext, dt, axis):
         '''
@@ -591,6 +653,51 @@ class FLIC(Schemes):
 
         return FL, FR
     
+    def _phi(self, U, axis):
+        phi_g = self.phi_g
+
+        Up = np.roll(U, -1, axis=axis)
+        Um = np.roll(U, 1, axis=axis)
+
+        num = U - Um 
+        den = np.where(np.abs(Up - U) < self.eps, self.eps, Up - U)
+        r = num / den
+
+        def superbee(r):
+            phi = np.where(r>0, 2*r, 0)
+            phi[r>0.5] = np.where(
+                r[r>0.5]<=1, 1,
+                np.minimum(2, phi_g*(1-phi_g)*r[r>0.5])
+            )
+
+            return phi
+        
+        def vanleer(r):
+            phi = np.where(r>0, 2*r/(1+r), 0)
+            phi[r>1] = phi_g+(2*(1-phi_g)*r[r>1])/(1+r[r>1])
+
+            return phi
+        
+        def vanalbada(r):
+            phi = np.where(r>0, r*(1+r)/(1+r**2), 0)
+            phi[r>1] = phi_g + (1-phi_g)*r[r>1]*(1+r[r>1])/(1+r[r>1]**2)
+
+            return phi
+        
+        def minbee(r):
+            phi = np.zeros_like(r)
+            phi[r>0] = np.where(r[r>0]<=1, r[r>0], 1)
+
+            return phi
+
+        
+        LIMITERS = {'superbee': superbee, 'vanleer': vanleer,
+                    'vanalbada': vanalbada, 'minbee': minbee}
+
+        limiter = LIMITERS[self.type](r)
+
+        return limiter
+    
     def _step1D(self, rho, ux, uy, E, Pg, dt):
         dx = self.dx 
         U = self._U(rho, ux, uy, E)
@@ -607,8 +714,8 @@ class FLIC(Schemes):
         FHi_L, FHi_R = self._HO_flux(Uprev, U, Unext, Fprev, Fx, Fnext,
                                      dt, axis=-1)
         
-        phiL = self._limiter(Uprev, self.type, self.eps, axis=-1)
-        phiR = self._limiter(U, self.type, self.eps, axis=-1)
+        phiL = self._phi(Uprev, axis=-1)
+        phiR = self._phi(U, axis=-1)
 
         FL = FLo_L + phiL * (FHi_L - FLo_L)
         FR = FLo_R + phiR * (FHi_R - FLo_R)
@@ -650,118 +757,106 @@ class MUSCL(Schemes):
     r'''
     The MUSCL scheme.
     '''
-    def __init__(self, gamma, dx, dy,boundary_condition='constant',
-                 beta=1/3, limit_func='minmod', epsilon=1e-8, **kwargs):
+    def __init__(self, gamma, x0, xf, y0, yf, dx, dy,
+                 boundary_condition='constant', gravity=False, beta=1,
+                 limit_func='minmod', epsilon=1e-8, **kwargs):
         
-        self.method = 'MUSCL'
+        self.method = 'MUSCL+' + limit_func
         self.type = limit_func
         self.eps = epsilon
         self.beta = beta
-        super().__init__(gamma, dx, dy, boundary_condition)
-        self.two_bc = True
-
-    def _reconstruct(self, U, axis):
-        k = self.beta
-        eps = self.eps 
-        type = self.type 
+        super().__init__(gamma, x0, xf, y0, yf, dx, dy,
+                         boundary_condition, gravity)
         
-        Umin2 = np.roll(U, 2, axis=axis)
-        Umin1 = np.roll(U, 1, axis=axis)
-        Uplus1 = np.roll(U, -1, axis=axis)
-        Uplus2 = np.roll(U, -2, axis=axis)
+        self.two_bc = False 
 
-        dUplus1h = Uplus1 - U
-        dUmin1h = U - Umin1
-        dUplus3h = Uplus2 - Uplus1
-        dUmin3h = Umin1 - Umin2
+    @staticmethod
+    def minmod(a, b):
+        mm = np.sign(a) * np.maximum(
+            0, np.minimum(np.abs(a), np.sign(a) * b)
+        )
 
-        phi_i = self._limiter(U, type, eps, axis=axis)
-        phi_iplus1 = self._limiter(Uplus1, type, eps, axis=axis)
-        phi_imin1 = self._limiter(Umin1, type, eps, axis=axis)
+        return mm
 
-        ULplus = U + phi_i/4 * ((1-k) * dUmin1h + (1+k) * dUplus1h)
-        URplus = Uplus1 - phi_iplus1/4 * ((1-k) * dUplus3h + (1+k) * dUplus1h)
-        ULmin = Umin1 + phi_imin1/4 * ((1-k) * dUmin3h + (1+k) * dUmin1h)
-        URmin = U - phi_i/4 * ((1-k) * dUplus1h + (1+k) * dUmin1h)
-
-        return ULplus, URplus, ULmin, URmin
-    
-    def _RK_step(self, U, dxy, dt, axis):
-        ULplus, URplus, ULmin, URmin = self._reconstruct(U, axis=axis)
-
-        FLplus = self._flux(ULplus, axis=axis)
-        FRplus = self._flux(URplus, axis=axis)
-        FLmin = self._flux(ULmin, axis=axis)
-        FRmin = self._flux(URmin, axis=axis)
-
-        FL = self.frac * (FLmin + FRmin - dxy/dt * (URmin - ULmin))
-        FR = self.frac * (FLplus + FRplus - dxy/dt * (URplus - ULplus))
-
-        dF = -1/dxy * (FR - FL)
-
-        return dF
-    
     def _step1D(self, rho, ux, uy, E, Pg, dt):
         dx = self.dx 
-        U = self._U(rho, ux, uy, E)
-
-        k1 = self._RK_step(U, dx, dt, axis=-1)
-        U1tmp = U + dt * k1/2
-        U1 = self._set_bc(U1tmp)
+        nx = rho.shape[-1]
         
-        k2 = self._RK_step(U1, dx, dt, axis=-1)
-        U2tmp = U + dt * k2/2
-        U2 = self._set_bc(U2tmp)
+        U = self._U(rho, ux, uy, E)
+        UL = np.zeros_like(U)
+        UR = np.zeros_like(U)
 
-        k3 = self._RK_step(U2, dx, dt, axis=-1)
-        U3tmp = U + dt * k3
-        U3 = self._set_bc(U3tmp)
+        for i in range(1, nx-1):
+            dUR = U[..., i+1] - U[..., i]
+            dUL = U[..., i] - U[..., i-1]
+            UL[..., i] = U[..., i] - 0.5 * self.minmod(dUR, dUL)
+            UR[..., i] = U[..., i] + 0.5 * self.minmod(dUR, dUR)
 
-        k4 = self._RK_step(U3, dx, dt, axis=-1)
+        F = np.zeros_like(U)
 
-        Un = U + dt/6 * (k1 + 2*k2 + 2*k3 + k4)
+        for i in range(1, nx-1):
+            uL = UL[..., i]
+            uR = UR[..., i-1]
+
+            flux = np.where(uR > uL,
+                            self._flux(uR, axis=-1),
+                            self._flux(uL, axis=-1))
+            
+            F[..., i] = flux
+
+        Un = np.zeros_like(U)
+
+        for i in range(1, nx-1):
+            dF = F[..., i] - F[..., i-1]
+            Un[..., i] = U[..., i] - dt/dx * dF
 
         return Un
-    
-    def _step2D(self, rho, ux, uy, E, Pg, dt):
-        dy = self.dy 
-        # U = self._step1D(rho, ux, uy, E, Pg, dt)
-        U = self._U(rho, ux, uy, E)
-
-        k1 = self._RK_step(U, dy, dt, axis=-2)
-        U1tmp = U + dt * k1/2
-        U1 = self._set_bc(U1tmp)
         
-        k2 = self._RK_step(U1, dy, dt, axis=-2)
-        U2tmp = U + dt * k2/2
-        U2 = self._set_bc(U2tmp)
+    # def _reconstruct(self, U, axis):
+    #     k = self.beta
+    #     eps = self.eps 
+    #     type = self.type 
+        
+    #     Umin2 = np.roll(U, 2, axis=axis)
+    #     Umin1 = np.roll(U, 1, axis=axis)
+    #     Uplus1 = np.roll(U, -1, axis=axis)
+    #     Uplus2 = np.roll(U, -2, axis=axis)
 
-        k3 = self._RK_step(U2, dy, dt, axis=-2)
-        U3tmp = U + dt * k3
-        U3 = self._set_bc(U3tmp)
+    #     dUplus1h = Uplus1 - U
+    #     dUmin1h = U - Umin1
+    #     dUplus3h = Uplus2 - Uplus1
+    #     dUmin3h = Umin1 - Umin2
 
-        k4 = self._RK_step(U3, dy, dt, axis=-2)
+    #     phi_i = self._limiter(U, type, eps, axis=axis)
+    #     phi_iplus1 = self._limiter(Uplus1, type, eps, axis=axis)
+    #     phi_imin1 = self._limiter(Umin1, type, eps, axis=axis)
 
-        Un = self._step1D(rho, ux, uy, E, Pg, dt)
-        Unn = Un + dt/6 * (k1 + 2*k2 + 2*k3 + k4)
+    #     ULplus = U + phi_i/4 * ((1-k) * dUmin1h + (1+k) * dUplus1h)
+    #     URplus = Uplus1 - phi_iplus1/4 * ((1-k) * dUplus3h + (1+k) * dUplus1h)
+    #     ULmin = Umin1 + phi_imin1/4 * ((1-k) * dUmin3h + (1+k) * dUmin1h)
+    #     URmin = U - phi_i/4 * ((1-k) * dUplus1h + (1+k) * dUmin1h)
 
-        return Unn
+    #     return ULplus, URplus, ULmin, URmin
+    
+    # def _RK_step(self, U, dxy, dt, axis):
+    #     ULplus, URplus, ULmin, URmin = self._reconstruct(U, axis=axis)
 
-    # def _step(self, rho, ux, uy, E, Pg, dt):
-    #     dx, dy = self.dx, self.dy
+    #     FLplus = self._flux(ULplus, axis=axis)
+    #     FRplus = self._flux(URplus, axis=axis)
+    #     FLmin = self._flux(ULmin, axis=axis)
+    #     FRmin = self._flux(URmin, axis=axis)
 
+    #     FL = self.frac * (FLmin + FRmin - dxy/dt * (URmin - ULmin))
+    #     FR = self.frac * (FLplus + FRplus - dxy/dt * (URplus - ULplus))
+
+    #     dF = -1/dxy * (FR - FL)
+
+    #     return dF
+    
+    # def _step1D(self, rho, ux, uy, E, Pg, dt):
+    #     dx = self.dx 
     #     U = self._U(rho, ux, uy, E)
-    #     ULplus, URplus, ULmin, URmin = self._reconstruct(U, axis=-1)
 
-    #     FLplus = self._flux(ULplus, axis=-1)
-    #     FRplus = self._flux(URplus, axis=-1)
-    #     FLmin = self._flux(ULmin, axis=-1)
-    #     FRmin = self._flux(URmin, axis=-1)
-
-    #     FL = 0.5 * (FLmin + FRmin - dx/dt * (URmin - ULmin))
-    #     FR = 0.5 * (FLplus + FRplus - dx/dt * (URplus - ULplus))
-
-    #     # Un = U - dt/dx * (FR - FL)
     #     k1 = self._RK_step(U, dx, dt, axis=-1)
     #     U1tmp = U + dt * k1/2
     #     U1 = self._set_bc(U1tmp)
@@ -778,8 +873,28 @@ class MUSCL(Schemes):
 
     #     Un = U + dt/6 * (k1 + 2*k2 + 2*k3 + k4)
 
-    #     if not self.is2D:
-    #         return Un
+    #     return Un
+    
+    # def _step2D(self, rho, ux, uy, E, Pg, dt):
+    #     dy = self.dy 
+    #     # U = self._step1D(rho, ux, uy, E, Pg, dt)
+    #     U = self._U(rho, ux, uy, E)
+
+    #     k1 = self._RK_step(U, dy, dt, axis=-2)
+    #     U1tmp = U + dt * k1/2
+    #     U1 = self._set_bc(U1tmp)
         
-    #     else:
-    #         raise NotImplementedError('2D version not yet available')
+    #     k2 = self._RK_step(U1, dy, dt, axis=-2)
+    #     U2tmp = U + dt * k2/2
+    #     U2 = self._set_bc(U2tmp)
+
+    #     k3 = self._RK_step(U2, dy, dt, axis=-2)
+    #     U3tmp = U + dt * k3
+    #     U3 = self._set_bc(U3tmp)
+
+    #     k4 = self._RK_step(U3, dy, dt, axis=-2)
+
+    #     Un = self._step1D(rho, ux, uy, E, Pg, dt)
+    #     Unn = Un + dt/6 * (k1 + 2*k2 + 2*k3 + k4)
+
+    #     return Unn

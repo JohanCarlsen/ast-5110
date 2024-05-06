@@ -130,38 +130,12 @@ class InitConds:
 
         self.E += e + 0.5 * V2
 
-    def _gravity(self, rho, M=1e5, show=False, step=8):
-        r, x, y = self.r, self.x, self.y
-        F = -rho * self.G * M / r**2
-        Fx = F * x / np.linalg.norm(r)
-        Fy = F * y / np.linalg.norm(r)
-
-        if show:
-            fig, ax = plt.subplots()
-            div = make_axes_locatable(ax)
-            cax = div.append_axes('right', '5%', '5%')
-
-            im = ax.imshow(Fx, origin='lower', extent=self.extent, 
-                           cmap='bwr')
-            
-            ax.quiver(x[::step, ::step], y[::step, ::step],
-                      Fx[::step, ::step], Fy[::step, ::step])
-            
-            fig.colorbar(im, cax=cax)
-            plt.show()
-
-        return Fx, Fy
-
     def coll_discs(self, ux0, uy0, rho0=1, Pg0=1, T0=1, **kwargs):
         self.rho += rho0
         self.ux += ux0 
         self.uy += uy0
         self.Pg += Pg0
         self.T += T0 
-
-        Fx, Fy = self._gravity(self.rho, **kwargs)
-        self.ux += Fx 
-        self.uy += Fy
 
         e = Pg0 / ((self.g - 1) * rho0)
         V2 = self.ux**2 + self.uy**2

@@ -89,36 +89,3 @@ def update(i):
 
 ani = FuncAnimation(fig, update, frames, interval=50)
 ani.save('figures/' + HD.scheme_name + fname_ext, PillowWriter(fps=50))
-# def gauss(x, y, x1=50, y1=50, x2=150, y2=50):
-#     P1 = ((x - x1) / 10)**2
-#     P2 = ((y - y1) / 10)**2
-#     P3 = ((x - x2) / 10)**2
-#     P4 = ((y - y2) / 10)**2
-
-#     return np.exp(-0.5 * (P1 + P2)) + 3*np.exp(-0.5 * (P3 + P4))
-
-# N = 200
-# rho = np.zeros((N, N))
-
-# for y in range(N):
-#     for x in range(N):
-#         rho[y, x] += gauss(x, y)
-
-# # x0 = np.abs(x2 - x1)
-# # y0 = np.abs(y2 - y1)
-
-# X = np.arange(N)
-# Y = X
-# x, y = np.meshgrid(X, Y)
-# a = np.sum(x*rho, axis=1) / np.sum(rho, axis=1)
-# b = np.sum(y*rho, axis=0) / np.sum(rho, axis=0)
-# x0 = np.mean(a)
-# y0 = np.mean(b)
-# r = np.sqrt((x-x0)**2 + (y-y0)**2)
-# # r = np.sqrt((x-x0)**2 + (y-y0)**2)
-# # r = np.where(r == 0, 1e-10, r)
-# # F = 6.67e-11 * 2*1e30 / r**2
-
-# plt.imshow(rho)
-# plt.scatter(x0, y0, s=50, marker='x', color='red')
-# plt.show()
