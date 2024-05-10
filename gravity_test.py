@@ -16,9 +16,9 @@ plt.rcParams.update({'xtick.direction': 'in',
 
 basepath = 'figures/gravity-test/'
 
-nx = 150
+nx = 100
 ny = nx
-nt = 2500
+nt = 50000
 x0 = -1
 xf = 1 
 y0 = x0 
@@ -29,7 +29,7 @@ ic.coll_discs(0, 0)
 dx, dy, rho0, ux0, uy0, E0, Pg0, T0 = ic.get_ICs()
 
 hd = HDSolver2D(rho0, ux0, uy0, Pg0, E0, T0, dx, dy, x0, xf, y0, yf,
-                gravity=True, nt=nt, bc='transmissive', M=1e30)
+                gravity=True, nt=nt, bc='periodic', M=1e30)
 
 path = basepath + hd.scheme_name + '.gif'
 
@@ -79,4 +79,4 @@ def update(i):
     txt.set_text(hd.scheme_name + f'\n{time}')
 
 ani = FuncAnimation(fig, update, frames, interval=50)
-ani.save(path, PillowWriter(fps=50))
+ani.save(path, PillowWriter(fps=20))

@@ -41,10 +41,10 @@ ra, ua, ea, pa = sod_analytical(rhoL, rhoR, PgL, PgR, nx, t_snap)
 avars = [ra, ua, pa, ea]
 
 for solver in solvers:
-    if solver in ['muscl']:
+    if not solver in ['muscl']:
         continue
     hd = HDSolver1D(rho0, ux0, Pg0, E0, dx, nt=nt, solver=solver,
-                    limit_func='superbee', cfl_cut=0.9)
+                    limit_func='superbee', cfl_cut=0.9, bc='transmissive')
     
     title = hd.scheme_name + f'\n$\\Delta x={dx:.3f}$, $t={t_snap}$'
     path = basepath + hd.scheme_name + '.png'

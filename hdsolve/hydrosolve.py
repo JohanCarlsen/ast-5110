@@ -155,13 +155,19 @@ class HDSolver2D(HDSolver):
 
             if self.verbose:
                 progr = (i+1) / (self.N-1) * 100 
-                print(f' Progress: {progr:6.2f} % completed', end='\r')
+                t2 = perf_counter_ns()
+                ptime = (t2 - t1) * 1e-9
+                mins = ptime // 60 
+                secs = ptime % 60
+                print(f' Progress: {progr:6.2f} % completed in {mins:2.0f} min {secs:4.1f} seconds', end='\r')
 
-        t2 = perf_counter_ns()
+        t3 = perf_counter_ns()
         if self.verbose:
             print('')
-            time = (t2 - t1) * 1e-9
-            print(f' Time elapsed: {time:.3f} seconds')
+            # time = (t3 - t1) * 1e-9
+            # mins = time // 60 
+            # secs = time % 60
+            # print(f' Time elapsed: {mins:2.0f} min {secs:4.1f} seconds')
             
     def get_arrays(self) -> tuple:
         '''
