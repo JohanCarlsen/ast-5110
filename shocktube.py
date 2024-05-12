@@ -22,8 +22,11 @@ PgR = 1.0 / gamma
 
 rhoL, rhoR, PgL, PgR = rhoR, rhoL, PgR, PgL
 
-nx = 750
+nx = 500
+# nx = 750
 nt = 500
+# nt = 500
+cfl = 0.9
 
 x = np.linspace(0, 1, nx)
 t_snap = 0.2
@@ -41,12 +44,18 @@ ra, ua, ea, pa = sod_analytical(rhoL, rhoR, PgL, PgR, nx, t_snap)
 avars = [ra, ua, pa, ea]
 
 for solver in solvers:
-    if not solver in ['muscl']:
-        continue
+    # if not solver in ['muscl']:
+    #     continue
+    if solver == 'muscl':
+        cfl = 0.3
+        nt = 1000
     hd = HDSolver1D(rho0, ux0, Pg0, E0, dx, nt=nt, solver=solver,
-                    limit_func='superbee', cfl_cut=0.9, bc='transmissive')
+                    limit_func='superbee', cfl_cut=cfl,
+                    bc='transmissive')
     
-    title = hd.scheme_name + f'\n$\\Delta x={dx:.3f}$, $t={t_snap}$'
+    title = hd.scheme_name + f' at $t={t_snap}$' \
+          + f'\n$\\Delta x={dx:.3f}$, $CFL={hd.cfl}$'
+    
     path = basepath + hd.scheme_name + '.png'
 
     t, rho, ux, e, Pg = hd.get_arrays()
@@ -60,12 +69,13 @@ for solver in solvers:
 
     vars = [r, u, p, e]
 
-    fig, axes = plt.subplots(2, 2, figsize=(10, 7.5), sharex=True)
+    fig, axes = plt.subplots(2, 2, figsize=(10.6, 6), sharex=True)
 
     for var, avar, ax, xlab, ylab in zip(vars, avars, axes.flat,
                                          xlabs, ylabs):
         
         ax.plot(x, avar, color='black', lw=0.5)
+        # ax.plot(x, var.T, color='tab:blue')
         ax.scatter(x, var, s=1, color='tab:blue')
         ax.set_xlabel(xlab)
         ax.set_ylabel(ylab)

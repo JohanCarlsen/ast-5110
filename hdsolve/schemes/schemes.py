@@ -341,33 +341,6 @@ class Schemes:
                     FRoe[:, i, j] = dF[:, i, j] - 0.5 * (K @ D @ alpha)
 
         return FRoe
-    
-    def _limiter(self, U, type, epsilon, axis):
-        Up1 = np.roll(U, -1, axis=axis)
-        Um1 = np.roll(U, 1, axis=axis)
-
-        num = U-Um1
-        den = np.where(np.abs(Up1 - U) < epsilon, epsilon, Up1-U)
-
-        r = num/den
-        zero = np.zeros_like(r)
-        one = np.ones_like(r)
-        sb = lambda r: np.maximum(zero,
-                                  np.minimum(2*r, one),
-                                  np.minimum(r, 2*one)
-                                  )
-        
-        mm = lambda r: np.maximum(0, np.minimum(0.75, r))
-        # mm = lambda r: np.maximum(zero, np.minimum(one, r))
-
-        vl = lambda r: (r + np.abs(r)) / (1 + np.abs(r))
-
-        LIMITERS = {'superbee': sb, 'minmod': mm, 'vanleer': vl}
-
-        phi = LIMITERS[type](r)
-
-        return phi
-
 
     def _Roe_flux(self, UL, PgL, axis, UR=None, PgR=None):
         nx, ny = UL.shape[2], UL.shape[1]
@@ -450,12 +423,22 @@ class LaxFriedrich(Schemes):
         U = self._U(rho, ux, uy, E)
         Fx = self._flux(U, axis=-1)
 
-        UW = np.roll(U, 1, axis=-1)
-        UE = np.roll(U, -1, axis=-1)
-        FW = np.roll(Fx, 1, axis=-1)
-        FE = np.roll(Fx, -1, axis=-1)
+        Umin = np.roll(U, 1, axis=-1)
+        Uplus = np.roll(U, -1, axis=-1)
+        Fmin = np.roll(Fx, 1, axis=-1)
+        Fplus = np.roll(Fx, -1, axis=-1)
 
-        Un = self.frac * (UW + UE - dt/dx * (FE - FW))
+        FplusHalf = 0.5 * (Fx + Fplus - dx/dt * (Uplus - U))
+        FminHalf = 0.5 * (Fx + Fmin - dx/dt * (U - Umin))
+
+        Un = U - dt/dx * (FplusHalf - FminHalf)
+
+        # UW = np.roll(U, 1, axis=-1)
+        # UE = np.roll(U, -1, axis=-1)
+        # FW = np.roll(Fx, 1, axis=-1)
+        # FE = np.roll(Fx, -1, axis=-1)
+
+        # Un = self.frac * (UW + UE - dt/dx * (FE - FW))
 
         return Un 
     
@@ -464,13 +447,23 @@ class LaxFriedrich(Schemes):
         U = self._U(rho, ux, uy, E)
         Fy = self._flux(U, axis=-2)
 
-        US = np.roll(U, 1, axis=-2)
-        UN = np.roll(U, -1, axis=-2)
-        FS = np.roll(Fy, 1, axis=-2)
-        FN = np.roll(Fy, -1, axis=-2)
+        Umin = np.roll(U, 1, axis=-1)
+        Uplus = np.roll(U, -1, axis=-1)
+        Fmin = np.roll(Fy, 1, axis=-1)
+        Fplus = np.roll(Fy, -1, axis=-1)
+
+        FplusHalf = 0.5 * (Fy + Fplus - dy/dt * (Uplus - U))
+        FminHalf = 0.5 * (Fy + Fmin - dy/dt * (U - Umin))
+
+
+        # US = np.roll(U, 1, axis=-2)
+        # UN = np.roll(U, -1, axis=-2)
+        # FS = np.roll(Fy, 1, axis=-2)
+        # FN = np.roll(Fy, -1, axis=-2)
 
         Un = self._step1D(rho, ux, uy, E, Pg, dt)
-        Unn = Un + self.frac * (US + UN - dt/dy * (FN - FS))
+        Unn = Un - dt/dy * (FplusHalf - FminHalf)
+        # Unn = Un + self.frac * (US + UN - dt/dy * (FN - FS))
 
         return Unn
     
@@ -763,27 +756,18 @@ class MUSCL(Schemes):
     '''
     def __init__(self, gamma, x0, xf, y0, yf, dx, dy,
                  boundary_condition='constant', gravity=False,
-                 **kwargs):
+                 slope_limiter='minmod', **kwargs):
         
-        self.method = 'MUSCL-Roe+minmod'
+        self.method = 'MUSCL-Roe+' + slope_limiter
+        self.lim = slope_limiter
         super().__init__(gamma, x0, xf, y0, yf, dx, dy,
                          boundary_condition, gravity)
-        
-    @staticmethod
-    def _minmod(v):
-        s = sum(v) / len(v)
-
-        if abs(s)== 1:
-            return s * min(abs(v))
-        
-        else:
-            return 0
     
     def _comp_flux(self, U):
         nx, ny = self.nx+2, self.ny
         dx = self.dx
 
-        UL, UR = reconstruct1D(U, nx, ny, dx)
+        UL, UR = reconstruct1D(U, nx, ny, dx, self.lim)
         F = np.zeros((4, ny, nx-1))
         
         PgL = self._EOS(UL)

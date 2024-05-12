@@ -206,7 +206,7 @@ class HDSolver2D(HDSolver):
 class HDSolver1D(HDSolver):
     def __init__(self, rho0, ux0, Pg0, E0, dx, x0=0, xf=1, nt=100,
                  cfl_cut=0.9, gamma=5/3, solver='roe',
-                 bc='constant', verbose=False, **kwargs):
+                 bc='transmissive', verbose=False, **kwargs):
         
         kwargs['c'] = cfl_cut
         self.solver = SOLVERS[solver](gamma, x0, xf, 0, 1, dx, 1, bc,
