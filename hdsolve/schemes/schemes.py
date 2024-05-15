@@ -670,8 +670,8 @@ class FLIC(Schemes):
         FHi_L, FHi_R = self._HO_flux(Uprev, U, Unext, Fprev, Fy,
                                         Fnext, dt, axis=-2)
         
-        phiL = self._limiter(Uprev, self.type, self.eps, axis=-2)
-        phiR = self._limiter(U, self.type, self.eps, axis=-2)
+        phiL = self._phi(Uprev, axis=-2)
+        phiR = self._phi(U, axis=-2)
 
         FL = FLo_L + phiL * (FHi_L - FLo_L)
         FR = FLo_R + phiR * (FHi_R - FLo_R)
