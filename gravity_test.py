@@ -18,18 +18,19 @@ basepath = 'figures/gravity-test/'
 
 nx = 100
 ny = nx
-nt = 50000
+nt = 15000
 x0 = -1
 xf = 1 
 y0 = x0 
 yf = xf
 
 ic = InitConds(nx, ny, x0, xf, y0, yf)
-ic.coll_discs(0, 0)
+ic.coll_discs()
+
 dx, dy, rho0, ux0, uy0, E0, Pg0, T0 = ic.get_ICs()
 
 hd = HDSolver2D(rho0, ux0, uy0, Pg0, E0, T0, dx, dy, x0, xf, y0, yf,
-                gravity=True, nt=nt, bc='periodic', M=1e30)
+                gravity=True, nt=nt, bc='periodic')
 
 path = basepath + hd.scheme_name + '.gif'
 
@@ -42,11 +43,12 @@ labels = [('', r'$y$'), ('', ''), ('', ''),
           (r'$x$', r'$y$'), (r'$x$', ''), (r'$x$', '')]
 ims = []
 
-if nt // 200 == 0:
+nframes = 100
+if nt // nframes == 0:
     frames = np.arange(len(t))
 
 else:
-    frames = np.arange(0, len(t), nt//200)
+    frames = np.arange(0, len(t), nt//nframes)
 
 fig, axes = plt.subplots(2, 3, figsize=(12, 8), sharex=True, sharey=True)
 time = r'$t=$' + f'${t[0]:.3e}$'

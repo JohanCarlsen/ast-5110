@@ -1,7 +1,7 @@
 import numpy as np 
 from numba import njit
 from .roe_flux import roe_flux
-from .muscl import reconstruct1D, build_flux
+from .muscl import reconstruct1D, build_flux1D, reconstruct2D, build_flux2D
 
 class Schemes:
     r'''
@@ -24,7 +24,7 @@ class Schemes:
     dx, dy : `float`
         Spatial resolution in the x and y directions.
 
-    boundary_condition : `{'constant', 'periodic', 'noslip'}`, default=`'constant'`
+    boundary_condition : `{'constant', 'periodic', 'noslip', 'transmissive'}`, default=`'constant'`
         Boundary condition for the simulation box.
 
             * `'constant'` : Set the boundaries to be constant from the
@@ -33,6 +33,11 @@ class Schemes:
             * `'periodic'` : Periodic boundary conditions.
 
             * `'noslip'` : Reflective walls.
+
+            * `'transmissive'` : Transmissive walls.
+
+    gravity : `bool`, default=`False`
+        Add "gravity" to the system. 
     '''
     def __init__(self, gamma, x0, xf, y0, yf, dx, dy,
                  boundary_condition='constant', gravity=False):
@@ -64,12 +69,13 @@ class Schemes:
             self._step = self._step1D
             self.r, self.x, self.y = 1, 1, 1
 
-    def _gravity(self, rho, axis, M=1e5, **kwargs):
+    def _gravity(self, rho, axis, M=1, **kwargs):
         if self.gravity:
             G = 6.67e-11
             r, x, y = self.r, self.x, self.y
             
-            F = -G * M / r**2
+            F = -M / r**2
+            # F = -G * M / r**2
             Fx = np.zeros((4, self.ny, self.nx))
             Fy = np.zeros_like(Fx)
 
@@ -129,7 +135,7 @@ class Schemes:
 
         axis : `int` or `str`, optional
             Return either the flux in the x direction or the y direction,
-            or both (defalut).
+            or both (default).
 
         Returns
         -------
@@ -270,78 +276,6 @@ class Schemes:
 
         return rho, drho, ux, dux, uy, duy, H, c, V2
 
-    @staticmethod
-    @njit
-    def __RF(nx, ny, dF, R, dR, Ux, dUx, Uy, dUy, dPg, H, C, V2, axis):
-        FRoe = np.zeros_like(dF, dtype=np.float64)
-        D = np.zeros((FRoe.shape[0], FRoe.shape[0]), dtype=np.float64)
-        d = np.zeros(FRoe.shape[0], dtype=np.float64)
-        alpha = np.zeros(FRoe.shape[0], dtype=np.float64)
-
-        if axis == -1:
-            for i in range(ny):
-                for j in range(nx):
-                    r, ux, uy = R[i, j], Ux[i, j], Uy[i, j]
-                    dr, dux, duy = dR[i, j], dUx[i, j], dUy[i, j]
-                    h, c, v2, dp = H[i, j], C[i, j], V2[i, j], dPg[i, j]
-
-                    K = np.array([[  1.   ,  1.   , 0. ,   1.  ],
-                                  [ux-c   ,  ux   , 0. ,  ux+c ],
-                                  [ uy    ,  uy   , 1. ,   uy  ],
-                                  [h-ux*c , v2/2. , uy , h+ux*c]],
-                                  dtype=np.float64)
-                    
-                    a1 = (dp - r*c*dux) / (2*c**2)
-                    a2 = dr - dp/c**2
-                    a3 = r*duy
-                    a4 = (dp + r*c*dux) / (2*c**2)
-
-                    alpha[0] = a1
-                    alpha[1] = a2
-                    alpha[2] = a3
-                    alpha[3] = a4
-
-                    d[0] = abs(ux-c)
-                    d[1] = abs(ux)
-                    d[2] = abs(ux)
-                    d[3] = abs(ux+c)
-                    np.fill_diagonal(D, d)
-
-                    FRoe[:, i, j] = dF[:, i, j] - 0.5 * (K @ D @ alpha)
-
-        elif axis == -2:
-            for i in range(ny):
-                for j in range(nx):
-                    r, ux, uy = R[i, j], Ux[i, j], Uy[i, j]
-                    dr, dux, duy = dR[i, j], dUx[i, j], dUy[i, j]
-                    h, c, v2, dp = H[i, j], C[i, j], V2[i, j], dPg[i, j]
-
-                    K = np.array([[  1.   ,  1.   , 0. ,   1.  ],
-                                  [ ux    ,  uy   , 1. ,  ux   ],
-                                  [ uy-c  ,  ux   , 0. ,  uy+c ],
-                                  [h-uy*c , v2/2. , ux , h+uy*c]],
-                                  dtype=np.float64)
-                    
-                    a1 = (dp - r*c*duy) / (2*c**2)
-                    a2 = dr - dp/c**2
-                    a3 = r*dux
-                    a4 = (dp + r*c*duy) / (2*c**2)
-
-                    alpha[0] = a1
-                    alpha[1] = a2
-                    alpha[2] = a3
-                    alpha[3] = a4
-
-                    d[0] = abs(uy-c)
-                    d[1] = abs(uy)
-                    d[2] = abs(uy)
-                    d[3] = abs(uy+c)
-                    np.fill_diagonal(D, d)
-
-                    FRoe[:, i, j] = dF[:, i, j] - 0.5 * (K @ D @ alpha)
-
-        return FRoe
-
     def _Roe_flux(self, UL, PgL, axis, UR=None, PgR=None):
         nx, ny = UL.shape[2], UL.shape[1]
 
@@ -358,8 +292,6 @@ class Schemes:
 
         FRoe = roe_flux(nx, ny, dF, R, dR, Ux, dUx, Uy, dUy, dPg,
                         H, C, V2, axis)
-        # FRoe = self.__RF(nx, ny, dF, R, dR, Ux, dUx, Uy, dUy, dPg,
-        #                  H, C, V2, axis)
 
         return FRoe
     
@@ -368,8 +300,10 @@ class Roe(Schemes):
     The Roe-Pike scheme. 
     '''
     def __init__(self, gamma, x0, xf, y0, yf, dx, dy,
-                 boundary_condition='constant', gravity=False, **kwargs):
+                 boundary_condition='constant', gravity=False, M=1,
+                 **kwargs):
         
+        self.M = M
         self.method = 'Roe'
         super().__init__(gamma, x0, xf, y0, yf, dx, dy,
                          boundary_condition, gravity)
@@ -382,11 +316,10 @@ class Roe(Schemes):
         Uxm = np.roll(U, 1, axis=-1)
         Pgxm = self._EOS(Uxm)
         FRoexM = self._Roe_flux(Uxm, Pgxm, -1)
-        Force_x = self._gravity(rho, axis=-1)
+        Force_x = self._gravity(rho, axis=-1, M=self.M)
 
         dFx = FRoexP - FRoexM
         Un = U - dt * (dFx/dx - Force_x)
-        # Un = U - dt/dx * dFx
 
         return Un 
     
@@ -398,12 +331,11 @@ class Roe(Schemes):
         Uym = np.roll(U, 1, -2)
         Pgym = self._EOS(Uym)
         GRoeyM = self._Roe_flux(Uym, Pgym, -2)
-        Force_y = self._gravity(rho, axis=-2)
+        Force_y = self._gravity(rho, axis=-2, M=self.M)
 
         dFy = GRoeyP - GRoeyM
         Un = self._step1D(rho, ux, uy, E, Pg, dt)
         Unn = Un - dt * (dFy/dy - Force_y)
-        # Unn = Un - dt/dy * dFy
 
         return Unn
     
@@ -763,18 +695,36 @@ class MUSCL(Schemes):
         super().__init__(gamma, x0, xf, y0, yf, dx, dy,
                          boundary_condition, gravity)
     
-    def _comp_flux(self, U):
+    def _comp_flux1D(self, U):
         nx, ny = self.nx+2, self.ny
         dx = self.dx
 
         UL, UR = reconstruct1D(U, nx, ny, dx, self.lim)
-        F = np.zeros((4, ny, nx-1))
         
         PgL = self._EOS(UL)
         PgR = self._EOS(UR)
         F = self._Roe_flux(UL, PgL, -1, UR, PgR)
         
-        dF = build_flux(F, nx, ny, dx)
+        dF = build_flux1D(F, nx, ny, dx)
+
+        return dF
+    
+    def _comp_flux2D(self, U):
+        nx, ny = self.nx+2, self.ny+2
+        dx, dy = self.dx, self.dy
+
+        UL, UR, US, UN = reconstruct2D(U, nx, ny, dx, dy, self.lim)
+        
+        PgL = self._EOS(UL)
+        PgR = self._EOS(UR)
+        PgS = self._EOS(US)
+        PgN = self._EOS(UN)
+
+        Fx = self._Roe_flux(UL, PgL, -1, UR, PgR)
+        Fy = self._Roe_flux(US, PgS, -2, UN, PgN)
+
+        dFx, dFy = build_flux2D(Fx, Fy, nx, ny, dx, dy)
+        dF = dFx + dFy
 
         return dF
     
@@ -784,7 +734,7 @@ class MUSCL(Schemes):
         U = np.zeros((4, ny, nx))
         U[..., 1:-1] = self._U(rho, ux, uy, E)
         U = self._set_bc(U)
-        dF = self._comp_flux(U)
+        dF = self._comp_flux1D(U)
 
         Utmp = U - dt * dF
         Un = Utmp[..., 1:-1]
@@ -792,5 +742,14 @@ class MUSCL(Schemes):
         return Un
     
     def _step2D(self, rho, ux, uy, E, Pg, dt):
-        msg = '2D not available for MUSCL'
-        raise NotImplementedError(msg)
+        nx, ny = self.nx+2, self.ny+2
+
+        U = np.zeros((4, ny, nx))
+        U[:, 1:-1, 1:-1] = self._U(rho, ux, uy, E)
+        U = self._set_bc(U)
+        dF = self._comp_flux2D(U)
+
+        Utmp = U - dt * dF
+        Un = Utmp[:, 1:-1, 1:-1]
+
+        return Un

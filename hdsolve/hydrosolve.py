@@ -75,7 +75,8 @@ class HDSolver2D(HDSolver):
             * 'muscl' : MUSCL
             * 'flic' : Flux-limiter central 
 
-    bc : {'periodic', 'constant', 'noslip'}, default='periodic'
+    bc : {'periodic', 'constant', 'noslip', 'transmissive'},
+        default='periodic'
         Boundary conditions.
 
     verbose : `bool`, default=`True`
@@ -161,13 +162,8 @@ class HDSolver2D(HDSolver):
                 secs = ptime % 60
                 print(f' Progress: {progr:6.2f} % completed in {mins:2.0f} min {secs:4.1f} seconds', end='\r')
 
-        t3 = perf_counter_ns()
         if self.verbose:
             print('')
-            # time = (t3 - t1) * 1e-9
-            # mins = time // 60 
-            # secs = time % 60
-            # print(f' Time elapsed: {mins:2.0f} min {secs:4.1f} seconds')
             
     def get_arrays(self) -> tuple:
         '''

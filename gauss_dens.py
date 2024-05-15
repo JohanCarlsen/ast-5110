@@ -17,21 +17,23 @@ plt.rcParams.update({'xtick.direction': 'in',
 nx = 150 
 ny = nx 
 nt = 1000
+cfl = 0.9
 
 ic = InitConds(nx, ny)
 ic.gaussian_density()
 dx, dy, rho0, ux0, uy0, E0, Pg0, T0 = ic.get_ICs()
-# solvers = ['lf', 'lw', 'mc', 'flic', 'muscl']
 solvers = ['roe', 'lf', 'lw', 'mc', 'flic', 'muscl']
 
 for solver in solvers:
-    if not solver in ['flic']:
-        continue
+    if solver == 'muscl':
+        cfl = 0.3
+        nt = 5000
+
     print('')
     print(f'Running: {solver}')
 
     hd = HDSolver2D(rho0, ux0, uy0, Pg0, E0, T0, dx, dy, nt=nt,
-                    solver=solver)
+                    solver=solver, cfl_cut=cfl)
 
     t, rho, ux, uy, e, Pg, T = hd.get_arrays()
     vars = [rho, ux, uy, e, Pg, T]

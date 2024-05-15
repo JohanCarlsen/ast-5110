@@ -26,6 +26,8 @@ class InitConds:
         self.dx = (xf - x0) / nx
         self.dy = (yf - y0) / ny
         self.g = gamma 
+        self.rotation = False
+        self.contours = False
 
         x = np.linspace(x0, xf, nx)
         y = np.linspace(y0, yf, ny)
@@ -130,16 +132,90 @@ class InitConds:
 
         self.E += e + 0.5 * V2
 
-    def coll_discs(self, ux0, uy0, rho0=1, Pg0=1, T0=1, **kwargs):
+    def coll_discs(self, ux0=0, uy0=0, rho0=1, Pg0=1, T0=1, rot=False,
+                   scale=0.1, gauss=False, A1=1, A2=1, sigma1=0.05,
+                   sigma2=0.05, **kwargs):
+        
         self.rho += rho0
-        self.ux += ux0 
-        self.uy += uy0
-        self.Pg += Pg0
-        self.T += T0 
+        self.Pg += Pg0 
 
-        e = Pg0 / ((self.g - 1) * rho0)
+        if gauss:
+            mu, m_u, kB = self.mu, self.m_u, self.kB
+            x0, xf, y0, yf = self.extent
+
+            x1 = x0 +(xf - x0) / 3
+            x2 = x0 + 2*(xf - x0) / 3
+            y1 = y0 + (yf - y0) / 3 
+            y2 = y0 + 2*(yf - y0) / 3
+
+            g1 = self._gaussian(x1, y1, A1, sigma1)
+            g2 = self._gaussian(x2, y2, A2, sigma2)
+
+            self.rho += g1 + g2
+            self.T += self.Pg / self.rho * mu * m_u / kB
+            e = kB * self.T / (mu * m_u)
+
+        else:
+            self.T += T0
+            e = Pg0 / ((self.g - 1) * rho0) 
+
+
+        if rot:
+            self.rotation = True
+            r, x, y = self.r, self.x, self.y
+            Vx = -scale * y / r**2
+            Vy = scale * x / r**2
+
+            self.ux += Vx 
+            self.uy += Vy 
+
+        else:
+            self.ux += ux0
+            self.uy += uy0
+
         V2 = self.ux**2 + self.uy**2
 
+        self.E += e + 0.5 * V2
+
+    def riemann2D(self, Pgs: list, rhos: list, uxs: list, uys: list,
+                  T0=1):
+        
+        self.contours = True
+        x0, xf, y0, yf = self.extent
+
+        x = np.linspace(x0, xf, self.nx)
+        y = np.linspace(y0, yf, self.ny)
+
+        xmid = x0 + (xf - x0) / 2
+        ymid = y0 + (yf - y0) / 2
+
+        bound_x = np.argwhere(x >= xmid)[0][0]
+        bound_y = np.argwhere(y >= ymid)[0][0]
+
+        self.Pg[bound_y:, bound_x:] = Pgs[0]
+        self.rho[bound_y:, bound_x:] = rhos[0]
+        self.ux[bound_y:, bound_x:] = uxs[0]
+        self.uy[bound_y:, bound_x:] = uys[0]
+
+        self.Pg[bound_y:, :bound_x] = Pgs[1]
+        self.rho[bound_y:, :bound_x] = rhos[1]
+        self.ux[bound_y:, :bound_x] = uxs[1]
+        self.uy[bound_y:, :bound_x] = uys[1]
+
+        self.Pg[:bound_y, :bound_x] = Pgs[2]
+        self.rho[:bound_y, :bound_x] = rhos[2]
+        self.ux[:bound_y, :bound_x] = uxs[2]
+        self.uy[:bound_y, :bound_x] = uys[2]
+
+        self.Pg[:bound_y, bound_x:] = Pgs[3]
+        self.rho[:bound_y, bound_x:] = rhos[3]
+        self.ux[:bound_y, bound_x:] = uxs[3]
+        self.uy[:bound_y, bound_x:] = uys[3]
+
+        self.T += T0
+        
+        e = self.Pg / ((self.g - 1) * self.rho)
+        V2 = self.ux**2 + self.uy**2
         self.E += e + 0.5 * V2
 
     def gaussian_density(self, rho0=1, Pg0=1, ux0=1, uy0=1, x0=0.5,
@@ -207,31 +283,49 @@ class InitConds:
         plt.show()
 
     def _show2D(self):
-        vars = [self.rho, self.ux, self.uy, self.E, self.Pg, self.T]
+        maps = ['plasma', 'bwr', 'bwr', 'plasma', 'plasma', 'plasma']
         titles = [
             'Density', 'Horizontal velocity', 'Vertical velocity',
             'Total energy', 'Gas pressure', 'Gas temperature'
         ]
+        if self.rotation:
+            vars = [np.log10(self.rho), self.ux, self.uy, np.log10(self.E), self.Pg, self.T]
+            titles[0] += r' ($\log_{10}$)'
+            titles[3] += r' ($\log_{10}$)'
+        
+        else:
+            vars = [self.rho, self.ux, self.uy, self.E, self.Pg, self.T]
         labels = [
             ('', r'$y$'), ('', ''), ('', ''),
             (r'$x$', r'$y$'), (r'$x$', ''), (r'$x$', '')
         ]
 
-        fig, axes = plt.subplots(2, 3, figsize=(12, 8), sharex=True,
+        fig, axes = plt.subplots(2, 3, figsize=(10.6, 6), sharex=True,
                                  sharey=True)
         
-        for var, ax, title, lab in zip(vars, axes.flat, titles, labels):
+        for var, ax, title, lab, map in zip(vars, axes.flat, titles,
+                                            labels, maps):
+            
             xlab, ylab = lab
             ax.set_title(title)
             ax.set_xlabel(xlab)
             ax.set_ylabel(ylab)
             ax.set_aspect('equal')
+            ax.set_xlim(self.extent[:2])
+            ax.set_ylim(self.extent[2:])
 
             div = make_axes_locatable(ax)
             cax = div.append_axes('right', '5%', '5%')
 
-            im = ax.imshow(var, origin='lower', cmap='plasma')
+            im = ax.imshow(var, origin='lower', cmap=map,
+                           extent=self.extent)
+            
             fig.colorbar(im, cax=cax)
+
+        if self.rotation:
+            axes[0, 0].streamplot(self.x, self.y, self.ux, self.uy,
+                                  density=0.5, linewidth=0.5,
+                                  color='white')
 
         fig.suptitle(self.figtitle)
         plt.show()
