@@ -74,7 +74,7 @@ class Schemes:
             G = 6.67e-11
             r, x, y = self.r, self.x, self.y
             
-            F = -M / r**2
+            F = -rho * M / r**2
             # F = -G * M / r**2
             Fx = np.zeros((4, self.ny, self.nx))
             Fy = np.zeros_like(Fx)
@@ -82,7 +82,7 @@ class Schemes:
             Fx[1] = F * x / np.linalg.norm(r)
             # Fx[1] = F * x / np.abs(x)
             Fy[2] = F * y / np.linalg.norm(r)
-            # Fy[2] = F * y / np.abs(y)
+            # Fy[2] = F * y / np.abs(x)
 
             if axis == -1:
                 return Fx
@@ -198,19 +198,32 @@ class Schemes:
             Utmp[..., 0] = Utmp[..., 1]
             Utmp[..., -1] = Utmp[..., -2]
 
-        elif self.bc == 'periodic' or self.bc == 'noslip':
+        elif self.bc == 'noslip':
+            for i in [1, 2]:
+                Utmp[i, :, 0] = 0
+                Utmp[i, :, -1] = 0
+                Utmp[i, 0, :] = 0
+                Utmp[i, -1, :] = 0
+
+            for i in [0, 3]:
+                Utmp[i, :, 0] = (4 * Utmp[i, :, 1] - Utmp[i, :, 2]) / 3
+                Utmp[i, :, -1] = (4 * Utmp[i, :, -2] - Utmp[i, :, -3]) / 3
+                Utmp[i, 0, :] = (4 * Utmp[i, 1, :] - Utmp[i, 2, :]) / 3
+                Utmp[i, -1, :] = (4 * Utmp[i, -2, :] - Utmp[i, -3, :]) / 3
+
+        elif self.bc == 'periodic':# or self.bc == 'noslip':
             for i in range(Utmp.shape[0]):
                 pad = Utmp[i, 1:-1, 1:-1]
                 Utmp[i] = np.pad(pad, [1, 1], mode='wrap')
 
-                if self.bc == 'noslip':
-                    if i == 2:
-                        Utmp[i, 0, :] = 0
-                        Utmp[i, -1, :] = 0
+                # if self.bc == 'noslip':
+                #     if i == 2:
+                #         Utmp[i, 0, :] = 0
+                #         Utmp[i, -1, :] = 0
 
-                    else:    
-                        Utmp[i, 0, :] = self._diff3(Utmp[i], 0)
-                        Utmp[i, -1, :] = self._diff3(Utmp[i], -1)
+                #     else:    
+                #         Utmp[i, 0, :] = self._diff3(Utmp[i], 0)
+                #         Utmp[i, -1, :] = self._diff3(Utmp[i], -1)
 
         return Utmp
     

@@ -17,6 +17,9 @@ plt.rcParams.update({'xtick.direction': 'in',
 nx = 150 
 ny = nx 
 
+muscl_pressure = 0.25
+muscl_params = {'nt': 500, 'HW': 1, 'solver': 'muscl', 'cfl_cut': 0.3}
+
 roe_pressure = 0.25
 roe_params = {'nt': 7000, 'HW': 10}
 
@@ -29,7 +32,7 @@ flic_params = {'nt': 1000, 'solver': 'flic'}
 mc_pressure = 5
 mc_params = {'nt': 5000, 'solver': 'mc', 'HW': 25}
 
-pg0, params = 5, roe_params
+pg0, params = muscl_pressure, muscl_params
 nt = params['nt']
 
 ic = InitConds(nx, ny)
@@ -86,5 +89,5 @@ def update(i):
     txt.set_text(hd.scheme_name + f'\n{time}')
 
 ani = FuncAnimation(fig, update, frames, interval=50)
-ani.save(hd.scheme_name + '.gif', PillowWriter(fps=50))
-# ani.save('figures/KHI/' + hd.scheme_name + '.gif', PillowWriter(fps=50))
+# ani.save(hd.scheme_name + '.gif', PillowWriter(fps=50))
+ani.save('figures/KHI/' + hd.scheme_name + '.gif', PillowWriter(fps=50))

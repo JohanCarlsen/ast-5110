@@ -143,10 +143,12 @@ class InitConds:
             mu, m_u, kB = self.mu, self.m_u, self.kB
             x0, xf, y0, yf = self.extent
 
-            x1 = x0 +(xf - x0) / 3
-            x2 = x0 + 2*(xf - x0) / 3
-            y1 = y0 + (yf - y0) / 3 
-            y2 = y0 + 2*(yf - y0) / 3
+            x1 = x0 +(xf - x0) / 5
+            x2 = x0 + 4*(xf - x0) / 5
+            y1 = y0 + (yf - y0) / 2
+            y2 = y1
+            # y1 = y0 + (yf - y0) / 4 
+            # y2 = y0 + 3*(yf - y0) / 4
 
             g1 = self._gaussian(x1, y1, A1, sigma1)
             g2 = self._gaussian(x2, y2, A2, sigma2)

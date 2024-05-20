@@ -16,9 +16,9 @@ plt.rcParams.update({'xtick.direction': 'in',
 
 basepath = 'figures/rotation/'
 
-nx = 150
+nx = 100
 ny = nx
-nt = 4000
+nt = 12000
 x0 = -1
 xf = 1 
 y0 = x0 
@@ -29,21 +29,27 @@ Y = np.linspace(y0, yf, ny)
 x, y = np.meshgrid(X, Y)
 
 ic = InitConds(nx, ny, x0, xf, y0, yf)
-ic.coll_discs(rot=True, scale=1e-2, gauss=True, A1=2, A2=2)
+
+# Lowest scale 0.02
+# Highest scale 0.06
+ic.coll_discs(rot=True, scale=0.06, gauss=True, A1=40, A2=40)
+
 # ic.show_initial()
 # exit()
 
 dx, dy, rho0, ux0, uy0, E0, Pg0, T0 = ic.get_ICs()
 
 hd = HDSolver2D(rho0, ux0, uy0, Pg0, E0, T0, dx, dy, x0, xf, y0, yf,
-                gravity=True, nt=nt, bc='transmissive', M=1)
+                gravity=True, nt=nt, bc='noslip', M=1, cfl_cut=1)
 
 path = basepath + hd.scheme_name + '.gif'
 
 t, rho, ux, uy, e, Pg, T = hd.get_arrays()
-vars = [np.log10(rho), ux, uy, np.log10(e), Pg, T]
-titles = [r'Density ($\log{10}$)', 'Horizontal velocity', 'Vertical velocity',
-          r'Total energy ($\log_{10}$)', 'Gas pressure', 'Gas temperature']
+vars = [rho, ux, uy, e, Pg, T]
+
+titles = [r'Density', 'Horizontal velocity',
+          'Vertical velocity', r'Total energy',
+          'Gas pressure', 'Gas temperature']
 
 labels = [('', r'$y$'), ('', ''), ('', ''),
           (r'$x$', r'$y$'), (r'$x$', ''), (r'$x$', '')]
@@ -61,7 +67,8 @@ else:
 fig, axes = plt.subplots(2, 3, figsize=(12, 8), sharex=True, sharey=True)
 
 time = r'$t=$' + f'${t[0]:.3e}$'
-txt = fig.suptitle(hd.scheme_name + f'\n{time}')
+base_text = 'Collision/merger with rotation and gravity'
+txt = fig.suptitle(base_text + f'\n{time}')
 
 for var, ax, title, label, map in zip(vars, axes.flat, titles, labels,
                                       maps):
@@ -94,7 +101,7 @@ def update(i):
         im.set_data(phi)
         im.set_clim(vmin, vmax)
 
-    txt.set_text(hd.scheme_name + f'\n{time}')
+    txt.set_text(base_text + f'\n{time}')
 
 ani = FuncAnimation(fig, update, frames, interval=50)
 ani.save(path, PillowWriter(fps=20))
