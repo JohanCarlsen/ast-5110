@@ -211,19 +211,10 @@ class Schemes:
                 Utmp[i, 0, :] = (4 * Utmp[i, 1, :] - Utmp[i, 2, :]) / 3
                 Utmp[i, -1, :] = (4 * Utmp[i, -2, :] - Utmp[i, -3, :]) / 3
 
-        elif self.bc == 'periodic':# or self.bc == 'noslip':
+        elif self.bc == 'periodic':
             for i in range(Utmp.shape[0]):
                 pad = Utmp[i, 1:-1, 1:-1]
                 Utmp[i] = np.pad(pad, [1, 1], mode='wrap')
-
-                # if self.bc == 'noslip':
-                #     if i == 2:
-                #         Utmp[i, 0, :] = 0
-                #         Utmp[i, -1, :] = 0
-
-                #     else:    
-                #         Utmp[i, 0, :] = self._diff3(Utmp[i], 0)
-                #         Utmp[i, -1, :] = self._diff3(Utmp[i], -1)
 
         return Utmp
     
@@ -373,42 +364,30 @@ class LaxFriedrich(Schemes):
         Fmin = np.roll(Fx, 1, axis=-1)
         Fplus = np.roll(Fx, -1, axis=-1)
 
-        FplusHalf = 0.5 * (Fx + Fplus - dx/dt * (Uplus - U))
-        FminHalf = 0.5 * (Fx + Fmin - dx/dt * (U - Umin))
+        FplusHalf = self.frac * (Fx + Fplus - dx/dt * (Uplus - U))
+        FminHalf = self.frac * (Fx + Fmin - dx/dt * (U - Umin))
 
         Un = U - dt/dx * (FplusHalf - FminHalf)
-
-        # UW = np.roll(U, 1, axis=-1)
-        # UE = np.roll(U, -1, axis=-1)
-        # FW = np.roll(Fx, 1, axis=-1)
-        # FE = np.roll(Fx, -1, axis=-1)
-
-        # Un = self.frac * (UW + UE - dt/dx * (FE - FW))
 
         return Un 
     
     def _step2D(self, rho, ux, uy, E, Pg, dt):
         dy = self.dy
-        U = self._U(rho, ux, uy, E)
+        U = self._step1D(rho, ux, uy, E, Pg, dt)
+        # U = self._U(rho, ux, uy, E)
         Fy = self._flux(U, axis=-2)
 
-        Umin = np.roll(U, 1, axis=-1)
-        Uplus = np.roll(U, -1, axis=-1)
-        Fmin = np.roll(Fy, 1, axis=-1)
-        Fplus = np.roll(Fy, -1, axis=-1)
+        Umin = np.roll(U, 1, axis=-2)
+        Uplus = np.roll(U, -1, axis=-2)
+        Fmin = np.roll(Fy, 1, axis=-2)
+        Fplus = np.roll(Fy, -1, axis=-2)
 
-        FplusHalf = 0.5 * (Fy + Fplus - dy/dt * (Uplus - U))
-        FminHalf = 0.5 * (Fy + Fmin - dy/dt * (U - Umin))
+        FplusHalf = self.frac * (Fy + Fplus - dy/dt * (Uplus - U))
+        FminHalf = self.frac * (Fy + Fmin - dy/dt * (U - Umin))
 
-
-        # US = np.roll(U, 1, axis=-2)
-        # UN = np.roll(U, -1, axis=-2)
-        # FS = np.roll(Fy, 1, axis=-2)
-        # FN = np.roll(Fy, -1, axis=-2)
-
-        Un = self._step1D(rho, ux, uy, E, Pg, dt)
-        Unn = Un - dt/dy * (FplusHalf - FminHalf)
-        # Unn = Un + self.frac * (US + UN - dt/dy * (FN - FS))
+        # Un = self._step1D(rho, ux, uy, E, Pg, dt)
+        Unn = U - dt/dy * (FplusHalf - FminHalf)
+        # Unn = Un - dt/dy * (FplusHalf - FminHalf)
 
         return Unn
     
@@ -557,8 +536,6 @@ class FLIC(Schemes):
         elif axis == -2:
             dxy = self.dy
 
-        # UL = self.frac * (U + Uprev - dt/dxy * (F - Fprev))
-        # UR = self.frac * (U + Unext - dt/dxy * (Fnext - F))
         UL = 0.5 * (U + Uprev - dt/dxy * (F - Fprev))
         UR = 0.5 * (U + Unext - dt/dxy * (Fnext - F))
 
@@ -577,9 +554,6 @@ class FLIC(Schemes):
         elif axis == -2:
             dxy = self.dy
 
-        # Lax-Friedrich flux
-        # LF_L = self.frac * (F + Fprev - dxy/dt * (U - Uprev))
-        # LF_R = self.frac * (F + Fnext - dxy/dt * (Unext - U))
         LF_L = 0.5 * (F + Fprev - dxy/dt * (U - Uprev))
         LF_R = 0.5 * (F + Fnext - dxy/dt * (Unext - U))
 
@@ -588,8 +562,6 @@ class FLIC(Schemes):
                                    dt, axis)
         
         # First-order central flux
-        # FL = self.frac * (LF_L + Ri_L)
-        # FR = self.frac * (LF_R + Ri_R)
         FL = 0.5 * (LF_L + Ri_L)
         FR = 0.5 * (LF_R + Ri_R)
 

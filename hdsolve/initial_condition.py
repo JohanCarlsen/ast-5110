@@ -254,17 +254,28 @@ class InitConds:
 
         self.E += e + 0.5 * V2
 
-    def show_initial(self):
+    def show_initial(self, fname=None, show=True, vel_cmap='bwr'):
         '''
         Show the initial condition.
+
+        Parameters
+        ----------
+        fname : `str`, optional
+            If given, the figure is saved as `fname`.
+
+        show : `bool`, default=`True`
+            Wheather to show the figure.
+
+        vel_cmap : `str`, default='bwg'
+            Color map to use on the velocity plots.
         '''
         if self.is2D:
-            self._show2D()
+            self._show2D(fname, show, vel_cmap)
 
         else:
-            self._show1D()
+            self._show1D(fname, show)
 
-    def _show1D(self):
+    def _show1D(self, fname, show):
         vars = [self.rho, self.ux, self.Pg, self.E]
         ylabs = [
             'Density', 'Horizontal velocity', 'Gas pressure', 
@@ -273,7 +284,8 @@ class InitConds:
         xlabs = ['', '', r'$x$', r'$x$']
         x = np.linspace(0, 1, self.nx)
 
-        fig, axes = plt.subplots(2, 2, figsize=(12, 6), sharex=True)
+        fig, axes = plt.subplots(2, 2, figsize=(10.6, 6), sharex=True,
+                                 dpi=200)
 
         for var, ax, xlab, ylab in zip( vars, axes.flat, xlabs, ylabs):
             ax.plot(x, var.T)
@@ -282,10 +294,15 @@ class InitConds:
             ax.set_xlim(0, 1)
 
         fig.suptitle(self.figtitle)
-        plt.show()
 
-    def _show2D(self):
-        maps = ['plasma', 'bwr', 'bwr', 'plasma', 'plasma', 'plasma']
+        if not fname is None:
+            fig.savefig(fname, bbox_inches='tight')
+
+        if show:
+            plt.show()
+
+    def _show2D(self, fname, show, vel_cmap):
+        maps = ['plasma', vel_cmap, vel_cmap, 'plasma', 'plasma', 'plasma']
         titles = [
             'Density', 'Horizontal velocity', 'Vertical velocity',
             'Total energy', 'Gas pressure', 'Gas temperature'
@@ -330,7 +347,12 @@ class InitConds:
                                   color='white')
 
         fig.suptitle(self.figtitle)
-        plt.show()
+
+        if not fname is None:
+            fig.savefig(fname, bbox_inches='tight')
+
+        if show:
+            plt.show()
 
     def get_ICs(self) -> tuple:
         '''

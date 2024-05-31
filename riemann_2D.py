@@ -105,7 +105,7 @@ for Tstop, test, txt, levlim in zip(Ts, tests, txts, levlims):
     # if not txt in ['6']:
     #     continue
 
-    fig, axes = plt.subplots(1, 3, figsize=(10.6, 6), sharey=True, dpi=250)
+    fig, axes = plt.subplots(1, 3, figsize=(10.6, 6), sharey=True, dpi=200)
     caxes = []
 
     for ax in axes:

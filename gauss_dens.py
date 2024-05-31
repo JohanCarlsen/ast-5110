@@ -2,7 +2,7 @@ import numpy as np
 from hdsolve.hydrosolve import HDSolver2D
 from hdsolve.initial_condition import InitConds
 import matplotlib.pyplot as plt 
-from matplotlib.animation import FuncAnimation, PillowWriter
+from matplotlib.animation import FuncAnimation, PillowWriter, FFMpegWriter
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 plt.rcParams.update({'xtick.direction': 'in',
@@ -14,20 +14,25 @@ plt.rcParams.update({'xtick.direction': 'in',
                      'animation.embed_limit': 100,
                      'font.sans-serif': 'Helvetica'})
 
-nx = 150 
+nx = 100 
 ny = nx 
 nt = 1000
-cfl = 0.9
+cfl = 1
 
 ic = InitConds(nx, ny)
 ic.gaussian_density()
+ic.show_initial('figures/gaussian-density/init-cond.jpg', show=False,
+                vel_cmap='plasma')
+exit()
 dx, dy, rho0, ux0, uy0, E0, Pg0, T0 = ic.get_ICs()
 solvers = ['roe', 'lf', 'lw', 'mc', 'flic', 'muscl']
 
 for solver in solvers:
+    if not solver in ['lf']:
+        continue
     if solver == 'muscl':
-        cfl = 0.3
-        nt = 5000
+        cfl = 0.6
+        nt = 1500
 
     print('')
     print(f'Running: {solver}')
@@ -50,8 +55,8 @@ for solver in solvers:
     else:
         frames = np.arange(0, len(t), nt//200)
 
-    fig, axes = plt.subplots(2, 3, figsize=(12, 8), sharex=True,
-                             sharey=True)
+    fig, axes = plt.subplots(2, 3, figsize=(10.6, 6), sharex=True,
+                             sharey=True, dpi=200)
     
     time = r'$t=$' + f'${t[0]:.3e}$'
     txt = fig.suptitle(hd.scheme_name + f'\n{time}')
@@ -83,7 +88,9 @@ for solver in solvers:
         txt.set_text(hd.scheme_name + f'\n{time}')
 
     ani = FuncAnimation(fig, update, frames, interval=50)
-    ani.save('figures/gaussian-density/' + hd.scheme_name + '.gif',
-            PillowWriter(fps=50))
+    ani.save('figures/gaussian-density/' + hd.scheme_name + '.mp4',
+            FFMpegWriter(fps=50))
+    # ani.save('figures/gaussian-density/' + hd.scheme_name + '.gif',
+    #         PillowWriter(fps=50))
 
     plt.close()

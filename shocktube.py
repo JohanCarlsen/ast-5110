@@ -65,7 +65,8 @@ for solver in solvers:
 
     vars = [r, u, p, e]
 
-    fig, axes = plt.subplots(2, 2, figsize=(10.6, 6), sharex=True)
+    fig, axes = plt.subplots(2, 2, figsize=(10.6, 6), sharex=True,
+                             dpi=200)
 
     for var, avar, ax, xlab, ylab in zip(vars, avars, axes.flat,
                                          xlabs, ylabs):

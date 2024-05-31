@@ -269,7 +269,9 @@ def Pg4_func(Pg4, Pg1, Pg5, rho1, rho5, gamma):
 
     return Pg1 * a2 - Pg4
 
-def sod_analytical(rhoL, rhoR, PgL, PgR, nx, t, uL=0, uR=0, gamma=5/3):
+def sod_analytical(rhoL, rhoR, PgL, PgR, nx, t, uL=0, uR=0, gamma=5/3,
+                   ret_pos=False):
+    
     g = gamma
 
     if PgL > PgR:
@@ -373,7 +375,11 @@ def sod_analytical(rhoL, rhoR, PgL, PgR, nx, t, uL=0, uR=0, gamma=5/3):
 
     e = Pg / ((g-1) * rho) + 0.5 * u**2
 
-    return rho, u, e, Pg
+    if ret_pos:
+        return rho, u, e, Pg, x_ft, x_hd, x_cd, x_sh
+
+    else:
+        return rho, u, e, Pg
 
 if __name__ == '__main__':
     from initial_condition import InitConds

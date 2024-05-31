@@ -41,7 +41,7 @@ titles = ['Density', 'Horizontal velocity', 'Gas pressure',
 
 labels = [('', r'$y$'), ('', ''), (r'$x$', r'$y$'), (r'$x$', '')]
 
-fig, ax = plt.subplots(figsize=(8, 6), dpi=200)
+fig, ax = plt.subplots(figsize=(10.6, 6), dpi=200)
 ax.set_title(f'MUSCL-Roe\n$\\Delta x={dx:.3f},CFL={cfl},t={t_end}$')
 ax.set_xlabel(r'$x$')
 ax.set_ylabel('Density')
@@ -84,4 +84,5 @@ for lim, abb in zip(limiters, lim_abbs):
 
 ax.legend(ncol=4, loc='upper right')
 fig.savefig(basepath + 'MUSCL.png', bbox_inches='tight')
+
 plt.show()

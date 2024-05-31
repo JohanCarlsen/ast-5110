@@ -2,7 +2,7 @@ import numpy as np
 from hdsolve.hydrosolve import HDSolver2D
 from hdsolve.initial_condition import InitConds
 import matplotlib.pyplot as plt 
-from matplotlib.animation import FuncAnimation, PillowWriter
+from matplotlib.animation import FuncAnimation, PillowWriter, FFMpegWriter
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 plt.rcParams.update({'xtick.direction': 'in',
@@ -12,16 +12,29 @@ plt.rcParams.update({'xtick.direction': 'in',
                      'figure.figsize': (8, 4.5),
                      'legend.frameon': False,
                      'animation.embed_limit': 100,
-                     'font.sans-serif': 'Helvetica'})
+                     'font.sans-serif': 'Helvetica',
+                     'figure.dpi': 200
+                     })
 
 nx = 150 
 ny = nx 
 
-muscl_pressure = 0.25
-muscl_params = {'nt': 500, 'HW': 1, 'solver': 'muscl', 'cfl_cut': 0.3}
+def get_params(solver):
+    if solver == 'roe':
+        p = 0.25
+        pars = {'nt': 6000, 'cfl_cut': 1}
+
+    elif solver == 'muscl':
+        p = 1.25
+        pars = {'nt': 6000, 'HW': 10, 'solver': 'muscl', 'cfl_cut': 1}
+
+    return p, pars
+
+muscl_pressure = 1
+muscl_params = {'nt': 10000, 'HW': 5, 'solver': 'muscl', 'cfl_cut': 0.4}
 
 roe_pressure = 0.25
-roe_params = {'nt': 7000, 'HW': 10}
+roe_params = {'nt': 7000, 'HW': 1}
 
 lw_pressure = 200
 lw_params = {'nt': 7000, 'solver': 'lw', 'HW': 10}
@@ -32,12 +45,12 @@ flic_params = {'nt': 1000, 'solver': 'flic'}
 mc_pressure = 5
 mc_params = {'nt': 5000, 'solver': 'mc', 'HW': 25}
 
-pg0, params = muscl_pressure, muscl_params
+pg0, params = get_params('muscl')
 nt = params['nt']
 
 ic = InitConds(nx, ny)
 ic.solar(pg0, **params)
-# ic.show_initial()
+# ic.show_initial('figures/KHI/init-cond.jpg', vel_cmap='plasma')
 # exit()
 
 dx, dy, rho0, ux0, uy0, E0, Pg0, T0 = ic.get_ICs()
@@ -89,5 +102,5 @@ def update(i):
     txt.set_text(hd.scheme_name + f'\n{time}')
 
 ani = FuncAnimation(fig, update, frames, interval=50)
-# ani.save(hd.scheme_name + '.gif', PillowWriter(fps=50))
-ani.save('figures/KHI/' + hd.scheme_name + '.gif', PillowWriter(fps=50))
+ani.save('figures/KHI/' + hd.scheme_name + '.mp4', FFMpegWriter(fps=50))
+# ani.save('figures/KHI/' + hd.scheme_name + '.gif', PillowWriter(fps=50))
