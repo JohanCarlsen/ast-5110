@@ -117,7 +117,7 @@ class Schemes:
         rho = U[0]
         ux = U[1] / rho
         uy = U[2] / rho 
-        E = U[3] #/ rho
+        E = U[3] / rho
 
         return rho, ux, uy, E
 
@@ -151,16 +151,14 @@ class Schemes:
         F1x = rho * ux 
         F2x = rho * ux**2 + Pg 
         F3x = rho * ux * uy 
-        F4x = (E + Pg) * ux 
-        # F4x = (rho * E + Pg) * ux 
+        F4x = (rho * E + Pg) * ux 
         Fx = np.array([F1x, F2x, F3x, F4x])
 
         # y-direction 
         F1y = rho * uy 
         F2y = rho * ux * uy 
         F3y = rho * uy**2 + Pg 
-        F4y = (E + Pg) * uy 
-        # F4y = (rho * E + Pg) * uy 
+        F4y = (rho * E + Pg) * uy 
         Fy = np.array([F1y, F2y, F3y, F4y])
 
         if axis == 'all':
@@ -173,8 +171,7 @@ class Schemes:
             return Fx
     
     def _U(self, rho, ux, uy, E, set_initial=True):
-        U = np.array([rho, rho * ux, rho * uy, E])
-        # U = np.array([rho, rho * ux, rho * uy, rho * E])
+        U = np.array([rho, rho * ux, rho * uy, rho * E])
 
         if set_initial:
             self.U0 = U[..., 0]
@@ -235,8 +232,7 @@ class Schemes:
     def _EOS(self, U):
         rho, ux, uy, E = self._get_variables(U)
 
-        e = E - 0.5 * (ux**2 + uy**2)
-        # e = rho * (E - 0.5 * (ux**2 + uy**2))
+        e = rho * (E - 0.5 * (ux**2 + uy**2))
         Pg = (self.g - 1) * e 
 
         return Pg 
