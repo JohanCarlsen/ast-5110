@@ -21,14 +21,14 @@ cfl = 1
 
 ic = InitConds(nx, ny)
 ic.gaussian_density()
-ic.show_initial('figures/gaussian-density/init-cond.jpg', show=False,
-                vel_cmap='plasma')
-exit()
+# ic.show_initial('figures/gaussian-density/init-cond.jpg', show=False,
+#                 vel_cmap='plasma')
+# exit()
 dx, dy, rho0, ux0, uy0, E0, Pg0, T0 = ic.get_ICs()
 solvers = ['roe', 'lf', 'lw', 'mc', 'flic', 'muscl']
 
 for solver in solvers:
-    if not solver in ['lf']:
+    if not solver in ['roe']:
         continue
     if solver == 'muscl':
         cfl = 0.6

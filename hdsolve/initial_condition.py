@@ -104,7 +104,10 @@ class InitConds:
 
         self.rho[:,:] = np.where(x < mid, rhoL, rhoR)
         self.Pg[:, :] = np.where(x < mid, PgL, PgR)
-        self.E[:, :] = self.Pg / ((self.g - 1) * self.rho)
+
+        V2 = 0.5 * self.ux**2
+        e = self.Pg / ((self.g - 1) * self.rho)
+        self.E[:, :] = self.rho * (V2 + e)
 
     def solar(self, Pg0: float, **kwargs):
         '''
@@ -130,7 +133,7 @@ class InitConds:
         e = kB * self.T / (mu * m_u)
         V2 = self.ux**2 + self.uy**2
 
-        self.E += e + 0.5 * V2
+        self.E += self.rho * (e + 0.5 * V2)
 
     def coll_discs(self, ux0=0, uy0=0, rho0=1, Pg0=1, T0=1, rot=False,
                    scale=0.1, gauss=False, A1=1, A2=1, sigma1=0.05,
@@ -177,7 +180,7 @@ class InitConds:
 
         V2 = self.ux**2 + self.uy**2
 
-        self.E += e + 0.5 * V2
+        self.E += self.rho * (e + 0.5 * V2)
 
     def riemann2D(self, Pgs: list, rhos: list, uxs: list, uys: list,
                   T0=1):
@@ -218,7 +221,7 @@ class InitConds:
         
         e = self.Pg / ((self.g - 1) * self.rho)
         V2 = self.ux**2 + self.uy**2
-        self.E += e + 0.5 * V2
+        self.E += self.rho * (e + 0.5 * V2)
 
     def gaussian_density(self, rho0=1, Pg0=1, ux0=1, uy0=1, x0=0.5,
                          y0=0.5, A=1, sigma=0.05):
@@ -252,7 +255,7 @@ class InitConds:
         e = kB * self.T / (mu * m_u)
         V2 = self.ux**2 + self.uy**2
 
-        self.E += e + 0.5 * V2
+        self.E += self.rho * (e + 0.5 * V2)
 
     def show_initial(self, fname=None, show=True, vel_cmap='bwr'):
         '''
