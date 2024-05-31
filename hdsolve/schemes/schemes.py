@@ -357,37 +357,27 @@ class LaxFriedrich(Schemes):
     def _step1D(self, rho, ux, uy, E, Pg, dt):
         dx = self.dx 
         U = self._U(rho, ux, uy, E)
-        Fx = self._flux(U, axis=-1)
 
         Umin = np.roll(U, 1, axis=-1)
         Uplus = np.roll(U, -1, axis=-1)
-        Fmin = np.roll(Fx, 1, axis=-1)
-        Fplus = np.roll(Fx, -1, axis=-1)
+        Fmin = self._flux(Umin, axis=-1)
+        Fplus = self._flux(Uplus, axis=-1)
 
-        FplusHalf = self.frac * (Fx + Fplus - dx/dt * (Uplus - U))
-        FminHalf = self.frac * (Fx + Fmin - dx/dt * (U - Umin))
-
-        Un = U - dt/dx * (FplusHalf - FminHalf)
+        Un = self.frac * (Umin + Uplus) - 0.5 * dt/dx * (Fplus - Fmin)
 
         return Un 
     
     def _step2D(self, rho, ux, uy, E, Pg, dt):
         dy = self.dy
-        U = self._step1D(rho, ux, uy, E, Pg, dt)
-        # U = self._U(rho, ux, uy, E)
-        Fy = self._flux(U, axis=-2)
+        U = self._U(rho, ux, uy, E)
 
         Umin = np.roll(U, 1, axis=-2)
         Uplus = np.roll(U, -1, axis=-2)
-        Fmin = np.roll(Fy, 1, axis=-2)
-        Fplus = np.roll(Fy, -1, axis=-2)
+        Fmin = self._flux(Umin, axis=-2)
+        Fplus = self._flux(Uplus, axis=-2)
 
-        FplusHalf = self.frac * (Fy + Fplus - dy/dt * (Uplus - U))
-        FminHalf = self.frac * (Fy + Fmin - dy/dt * (U - Umin))
-
-        # Un = self._step1D(rho, ux, uy, E, Pg, dt)
-        Unn = U - dt/dy * (FplusHalf - FminHalf)
-        # Unn = Un - dt/dy * (FplusHalf - FminHalf)
+        Un = self._step1D(rho, ux, uy, E, Pg, dt)
+        Unn = Un + 0.25 * (Umin + Uplus) - 0.5 * dt/dy * (Fplus - Fmin)
 
         return Unn
     
@@ -412,8 +402,8 @@ class LaxWendroff(Schemes):
         FL = np.roll(Fx, 1, axis=-1)
         FR = np.roll(Fx, -1, axis=-1)
 
-        UW = self.frac * (UL + U - dt/dx * (Fx - FL))
-        UE = self.frac * (UR + U - dt/dx * (FR - Fx))
+        UW = self.frac * (UL + U) - 0.5 * dt/dx * (Fx - FL)
+        UE = self.frac * (UR + U) - 0.5 * dt/dx * (FR - Fx)
 
         FW = self._flux(UW, axis=-1)
         FE = self._flux(UE, axis=-1)
@@ -432,8 +422,8 @@ class LaxWendroff(Schemes):
         FD = np.roll(Fy, 1, axis=-2)
         FU = np.roll(Fy, -1, axis=-2)
 
-        US = self.frac * (UD + U - dt/dy * (Fy - FD))
-        UN = self.frac * (UU + U - dt/dy * (FU - Fy))
+        US = self.frac * (UD + U) - 0.5 * dt/dy * (Fy - FD)
+        UN = self.frac * (UU + U) - 0.5 * dt/dy * (FU - Fy)
 
         FS = self._flux(US, axis=-2)
         FN = self._flux(UN, axis=-2)
@@ -638,32 +628,69 @@ class FLIC(Schemes):
 
         return Un 
     
+    def _HO_flux2D(self, U, Uxm, Uxp, Uym, Uyp, Fx, Fxm, Fxp, Fy, Fym, Fyp, dt):
+        dx, dy = self.dx, self.dy
+
+        UxpH = 0.5 * (U + Uxp) - dt/dx * (Fxp - Fx)
+        UxmH = 0.5 * (U + Uxm) - dt/dx * (Fx - Fxm)
+        UypH = 0.5 * (U + Uyp) - dt/dy * (Fyp - Fy)
+        UymH = 0.5 * (U + Uym) - dt/dy * (Fy - Fym)
+
+        FxHOp = self._flux(UxpH, axis=-1)
+        FxHOm = self._flux(UxmH, axis=-1)
+        FyHOp = self._flux(UypH, axis=-2)
+        FyHOm = self._flux(UymH, axis=-2)
+
+        return FxHOp, FxHOm, FyHOp, FyHOm
+    
+    def _LO_flux2D(self, U, Uxm, Uxp, Uym, Uyp, Fx, Fxm, Fxp, Fy, Fym, Fyp, dt):
+        dx, dy = self.dx, self.dy
+
+        FxLFp = 0.5 * (Fx + Fxp) - 0.25 * dx/dt * (Uxp - U)
+        FxLFm = 0.5 * (Fx + Fxm) - 0.25 * dx/dt * (U - Uxm)
+        FyLFp = 0.5 * (Fy + Fyp) - 0.25 * dy/dt * (Uyp - U)
+        FyLFm = 0.5 * (Fy + Fym) - 0.25 * dy/dt * (U - Uym)
+
+        FxHOp, FxHOm, FyHOp, FyHOm = self._HO_flux2D(U, Uxm, Uxp, Uym, Uyp, Fx, Fxm, Fxp, Fy, Fym, Fyp, dt)
+
+        FxLOp = 0.5 * (FxHOp + FxLFp)
+        FxLOm = 0.5 * (FxHOm + FxLFm)
+        FyLOp = 0.5 * (FyHOp + FyLFp)
+        FyLOm = 0.5 * (FyHOm + FyLFm)
+
+        return FxLOp, FxLOm, FyLOp, FyLOm
+
+    
     def _step2D(self, rho, ux, uy, E, Pg, dt):
-        dy = self.dy 
-        U = self._step1D(rho, ux, uy, E, Pg, dt)
-        # U = self._U(rho, ux, uy, E)
-        Fy = self._flux(U, axis=-2)
+        dx, dy = self.dx, self.dy
 
-        Uprev = np.roll(U, 1, axis=-2)
-        Unext = np.roll(U, -1, axis=-2)
-        Fprev = np.roll(Fy, 1, axis=-2)
-        Fnext = np.roll(Fy, -1, axis=-2)
+        U = self._U(rho, ux, uy, E)
+        Uxm = np.roll(U, 1, axis=-1)
+        Uxp = np.roll(U, -1, axis=-1)
+        Uym = np.roll(U, 1, axis=-2)
+        Uyp = np.roll(U, -1, axis=-2)
 
-        FLo_L, FLo_R = self._LO_flux(Uprev, U, Unext, Fprev, Fy,
-                                        Fnext, dt, axis=-2)
-        
-        FHi_L, FHi_R = self._HO_flux(Uprev, U, Unext, Fprev, Fy,
-                                        Fnext, dt, axis=-2)
-        
-        phiL = self._phi(Uprev, axis=-2)
-        phiR = self._phi(U, axis=-2)
+        Fx, Fy = self._flux(U)
 
-        FL = FLo_L + phiL * (FHi_L - FLo_L)
-        FR = FLo_R + phiR * (FHi_R - FLo_R)
+        Fxm = self._flux(Uxm, axis=-1)
+        Fxp = self._flux(Uxp, axis=-1)
+        Fym = self._flux(Uym, axis=-2)
+        Fyp = self._flux(Uyp, axis=-2)
 
-        # Un = self._step1D(rho, ux, uy, E, Pg, dt)
-        Unn = U - dt/dy * (FR - FL)
-        # Unn = Un - dt/dy * (FR - FL)
+        FxLOp, FxLOm, FyLOp, FyLOm = self._LO_flux2D(U, Uxm, Uxp, Uym, Uyp, Fx, Fxm, Fxp, Fy, Fym, Fyp, dt)
+        FxHOp, FxHOm, FyHOp, FyHOm = self._HO_flux2D(U, Uxm, Uxp, Uym, Uyp, Fx, Fxm, Fxp, Fy, Fym, Fyp, dt)
+
+        rxm = self._phi(Uxm, axis=-1)
+        rxp = self._phi(U, axis=-1)
+        rym = self._phi(Uym, axis=-2)
+        ryp = self._phi(U, axis=-2)
+
+        Fxm = FxLOm + rxm * (FxHOm - FxLOm)
+        Fxp = FxLOp + rxp * (FxHOp - FxLOp)
+        Fym = FyLOm + rym * (FyHOm - FyLOm)
+        Fyp = FyLOp + ryp * (FyHOp - FyLOp)
+
+        Unn = U - dt * ((Fxp - Fxm)/dx + (Fyp - Fym)/dy)
 
         return Unn
         
